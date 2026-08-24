@@ -333,6 +333,7 @@ color-scheme:dark;
 </style>
 </head>
 <body>
+<script src="builtin.js"></script>
 <div class="wrap">
 <div class="apphead">
 <div>
@@ -814,12 +815,49 @@ eachLabeledItem(function(item){ var l=labelOf(item); if(out.indexOf(l)===-1) out
 return out;
 }
 function labelOf(item){ return (item && item.label) ? item.label : LABEL_DEFAULT; }
+
+/* ---- 사이트 기본 제공 문제 ----
+   builtin.js에서 읽어와요. localStorage에 넣지 않으므로 저장 공간을 안 먹고,
+   클라우드로도 안 올라가고, 다음 배포 때 자동으로 최신 내용이 됩니다. */
+var BUILTIN = (function(){
+var b = (typeof window!=='undefined' && window.BUILTIN_QUESTIONS) || {};
+var n=0;
+function tag(arr, kind){
+if(!Array.isArray(arr)) return [];
+arr.forEach(function(x){
+if(!x) return;
+if(!x.id) x.id='bi-'+kind+'-'+(++n);
+x.__builtin=true;
+x.label=LABEL_BUILTIN;
+if(!Array.isArray(x.questions) && (kind==='read'||kind==='listen')) x.questions=[];
+(x.questions||[]).forEach(function(q,i){ if(q && !q.id) q.id=x.id+'-q'+(i+1); });
+});
+return arr;
+}
+var w=b.writing||{};
+return {
+reading: tag(b.reading,'read'),
+listening: tag(b.listening,'listen'),
+speaking: tag(b.speaking,'speak'),
+writing: {
+buildSentence: tag(w.buildSentence,'wbs'),
+email: tag(w.email,'wem'),
+discussion: tag(w.discussion,'wds')
+}
+};
+})();
+function isBuiltin(item){ return !!(item && item.__builtin); }
+
+/* 목록용 — 기본 문제를 앞에 두고 내 문제를 뒤에. 삭제·수정은 DATA에만 하세요. */
+function allReading(){ return BUILTIN.reading.concat(DATA.reading||[]); }
+function allListening(){ return BUILTIN.listening.concat(DATA.listening||[]); }
+function allSpeaking(){ return BUILTIN.speaking.concat(DATA.speaking||[]); }
+function allWriting(k){ return BUILTIN.writing[k].concat((DATA.writing||{})[k]||[]); }
 function eachLabeledItem(fn){
-(DATA.reading||[]).forEach(fn);
-(DATA.listening||[]).forEach(fn);
-(DATA.speaking||[]).forEach(fn);
-var w=DATA.writing||{};
-['buildSentence','email','discussion'].forEach(function(k){ (w[k]||[]).forEach(fn); });
+allReading().forEach(fn);
+allListening().forEach(fn);
+allSpeaking().forEach(fn);
+['buildSentence','email','discussion'].forEach(function(k){ allWriting(k).forEach(fn); });
 }
 function countByLabel(){
 var m={};
@@ -1575,6 +1613,13 @@ renderPane();
 return card;
 }
 
+/* 기본 문제는 이용자가 고치거나 지울 수 없어요 — 해당 항목을 걸러냅니다. */
+function menuFor(item, actions){
+if(!isBuiltin(item)) return actions;
+var keep=actions.filter(function(a){ return a && !a.danger && a.label!=='제목 수정' && a.label!=='라벨 변경' && a.label!=='문제 내용 수정' && String(a.label).indexOf('사진')===-1; });
+keep.push({label:'사이트 기본 문제예요', onClick:function(){}});
+return keep;
+}
 function kebabMenu(actions){
 var wrap=el('<div class="kebab-wrap" style="position:relative;display:inline-block;"></div>');
 var btn=el('<button class="btn small" style="padding:5px 8px;line-height:1;" aria-label="더보기">⋮</button>');
@@ -1674,9 +1719,9 @@ function renderNotesTab(){
 var panel=document.getElementById('panel-notes'); panel.innerHTML='';
 panel.appendChild(el('<p class="muted" style="margin-bottom:14px;">필기·문제풀기 화면의 "메모장"에 적은 내용을 Task별로 모아서 볼 수 있어요. (밑줄 아래 표시되는 메모와는 별개예요.)</p>'));
 var sections=[
-{kind:'reading', label:'리딩', items:DATA.reading, infoFn:readingTaskInfo},
-{kind:'listening', label:'리스닝', items:DATA.listening, infoFn:listeningTaskInfo},
-{kind:'speaking', label:'스피킹', items:DATA.speaking, infoFn:speakingTaskInfo}
+{kind:'reading', label:'리딩', items:allReading(), infoFn:readingTaskInfo},
+{kind:'listening', label:'리스닝', items:allListening(), infoFn:listeningTaskInfo},
+{kind:'speaking', label:'스피킹', items:allSpeaking(), infoFn:speakingTaskInfo}
 ];
 var anyNotes=false;
 sections.forEach(function(sec){
@@ -1992,7 +2037,7 @@ panel.appendChild(buildLabelFilterBar(renderReading));
 READING_TASK_TYPES.filter(function(i){return i.id===curTask('reading',READING_TASK_TYPES);}).forEach(function(info){
 panel.appendChild(el('<div class="task-head">'+taskHeader(info)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info.hint+'</p>'));
-var items=visibleItems(DATA.reading.filter(function(x){return x.taskType===info.id;}));
+var items=visibleItems(allReading().filter(function(x){return x.taskType===info.id;}));
 if(items.length===0){ panel.appendChild(el('<p class="muted" style="margin-bottom:10px;">'+(LABEL_FILTER?'이 라벨에 해당하는 문제가 없어요. 위에서 라벨을 켜보세요.':'아직 등록된 문제가 없어요.')+'</p>')); }
 items.forEach(function(item){
 var card=el('<div class="listitem" style="align-items:flex-start;"></div>');
@@ -2024,13 +2069,13 @@ if(editBox){ editBox.remove(); editBox=null; return; }
 editBox=buildReadingEditForm(item, info, renderReading);
 actionsRow.appendChild(editBox);
 }
-right.appendChild(kebabMenu([
+right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderReading),
 {label:item.image?'사진 변경/삭제':'사진 추가', onClick:function(){ imgCtl.open(); }},
 {label:'문제 내용 수정', onClick:toggleEditBox},
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.reading=DATA.reading.filter(function(x){return x.id!==item.id;}); saveData(); renderReading(); }}
-]));
+])));
 card.appendChild(right);
 panel.appendChild(card);
 });
@@ -2309,7 +2354,7 @@ panel.appendChild(buildLabelFilterBar(renderListening));
 LISTENING_TASK_TYPES.filter(function(i){return i.id===curTask('listening',LISTENING_TASK_TYPES);}).forEach(function(info){
 panel.appendChild(el('<div class="task-head">'+taskHeader(info)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info.hint+'</p>'));
-var items=visibleItems(DATA.listening.filter(function(x){return x.taskType===info.id;}));
+var items=visibleItems(allListening().filter(function(x){return x.taskType===info.id;}));
 if(items.length===0){ panel.appendChild(el('<p class="muted" style="margin-bottom:10px;">아직 등록된 문제가 없어요.</p>')); }
 items.forEach(function(item){
 var card=el('<div class="listitem" style="align-items:flex-start;"></div>');
@@ -2340,13 +2385,13 @@ if(editBox){ editBox.remove(); editBox=null; return; }
 editBox=buildListeningEditForm(item, renderListening);
 actionsRow.appendChild(editBox);
 }
-right.appendChild(kebabMenu([
+right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderListening),
 {label:item.image?'사진 변경/삭제':'사진 추가', onClick:function(){ imgCtl.open(); }},
 {label:'문제 내용 수정', onClick:toggleEditBox},
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.listening=DATA.listening.filter(function(x){return x.id!==item.id;}); saveData(); renderListening(); }}
-]));
+])));
 card.appendChild(right);
 panel.appendChild(card);
 });
@@ -3415,7 +3460,7 @@ panel=__sec.buildSentence=document.createElement('div');
 var info1=writingTaskInfo('buildSentence');
 panel.appendChild(el('<div class="task-head">'+taskHeader(info1)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info1.hint+'</p>'));
-visibleItems(DATA.writing.buildSentence).forEach(function(item){
+visibleItems(allWriting('buildSentence')).forEach(function(item){
 var card=el('<div class="listitem" style="align-items:flex-start;"></div>');
 var infoWrap=el('<div style="flex:1;"></div>');
 var bsLine=el('<div><strong>'+escapeHtml(item.title)+'</strong></div>');
@@ -3430,11 +3475,11 @@ var openBtn=el('<button class="btn primary small">연습하기</button>');
 openBtn.onclick=function(){ renderBuildSentenceExam(item); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
-right.appendChild(kebabMenu([
+right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderWritingSpeaking),
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.writing.buildSentence=DATA.writing.buildSentence.filter(function(x){return x.id!==item.id;}); saveData(); renderWritingSpeaking(); }}
-]));
+])));
 card.appendChild(right);
 panel.appendChild(card);
 });
@@ -3445,7 +3490,7 @@ panel=__sec.email=document.createElement('div');
 var info2=writingTaskInfo('email');
 panel.appendChild(el('<div class="task-head">'+taskHeader(info2)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info2.hint+'</p>'));
-visibleItems(DATA.writing.email).forEach(function(item){
+visibleItems(allWriting('email')).forEach(function(item){
 var card=el('<div class="listitem" style="align-items:flex-start;"></div>');
 var infoWrap=el('<div style="flex:1;"></div>');
 var tLine=el('<div><strong>'+escapeHtml(item.title)+'</strong></div>');
@@ -3459,11 +3504,11 @@ var openBtn=el('<button class="btn primary small">작성하기</button>');
 openBtn.onclick=function(){ renderWritingPractice(item, 'email', item.prompt); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
-right.appendChild(kebabMenu([
+right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderWritingSpeaking),
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.writing.email=DATA.writing.email.filter(function(x){return x.id!==item.id;}); saveData(); renderWritingSpeaking(); }}
-]));
+])));
 card.appendChild(right);
 panel.appendChild(card);
 });
@@ -3474,7 +3519,7 @@ panel=__sec.discussion=document.createElement('div');
 var info3=writingTaskInfo('discussion');
 panel.appendChild(el('<div class="task-head">'+taskHeader(info3)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info3.hint+'</p>'));
-visibleItems(DATA.writing.discussion).forEach(function(item){
+visibleItems(allWriting('discussion')).forEach(function(item){
 var card=el('<div class="listitem" style="align-items:flex-start;"></div>');
 var infoWrap=el('<div style="flex:1;"></div>');
 var tLine=el('<div><strong>'+escapeHtml(item.title)+'</strong></div>');
@@ -3488,11 +3533,11 @@ var openBtn=el('<button class="btn primary small">작성하기</button>');
 openBtn.onclick=function(){ renderDiscussionPractice(item); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
-right.appendChild(kebabMenu([
+right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderWritingSpeaking),
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.writing.discussion=DATA.writing.discussion.filter(function(x){return x.id!==item.id;}); saveData(); renderWritingSpeaking(); }}
-]));
+])));
 card.appendChild(right);
 panel.appendChild(card);
 });
@@ -3679,7 +3724,7 @@ panel=__sec.listenRepeat=document.createElement('div');
 var info1=speakingTaskInfo('listenRepeat');
 panel.appendChild(el('<div class="task-head">'+taskHeader(info1)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info1.hint+'</p>'));
-visibleItems(DATA.speaking.filter(function(t){return t.taskType==='listenRepeat';})).forEach(function(task){
+visibleItems(allSpeaking().filter(function(t){return t.taskType==='listenRepeat';})).forEach(function(task){
 var card=el('<div class="card"></div>');
 var head=el('<div class="row" style="justify-content:space-between;"></div>');
 var spTitle=el('<div><strong>'+escapeHtml(task.title)+'</strong></div>');
@@ -3687,11 +3732,11 @@ spTitle.appendChild(labelPill(task));
 head.appendChild(spTitle);
 var lrActionsRow=el('<div class="row" style="margin-bottom:6px;"></div>');
 var lrRenameCtl=inlineRename(lrActionsRow, task, renderWritingSpeaking, {external:true});
-head.appendChild(kebabMenu([
+head.appendChild(kebabMenu(menuFor(task, [
 {label:'제목 수정', onClick:function(){ lrRenameCtl.open(); }},
 labelChangeAction(task, renderWritingSpeaking),
 {label:'삭제', danger:true, onClick:function(){ markDeleted(task.id); DATA.speaking=DATA.speaking.filter(function(x){return x.id!==task.id;}); saveData(); renderWritingSpeaking(); }}
-]));
+])));
 card.appendChild(head);
 card.appendChild(el('<p style="margin-top:8px;">'+escapeHtml(task.sentence)+'</p>'));
 card.appendChild(lrActionsRow);
@@ -3712,14 +3757,14 @@ card.appendChild(buildNotepad(task.id, '들으면서 메모하세요 — 키워�
 card.appendChild(buildRecorderControl());
 panel.appendChild(card);
 });
-if(visibleItems(DATA.speaking.filter(function(t){return t.taskType==='listenRepeat';})).length===0) panel.appendChild(el('<p class="muted">'+(LABEL_FILTER?'이 라벨에 해당하는 문제가 없어요. 위에서 라벨을 켜보세요.':'아직 등록된 문제가 없어요.')+'</p>'));
+if(visibleItems(allSpeaking().filter(function(t){return t.taskType==='listenRepeat';})).length===0) panel.appendChild(el('<p class="muted">'+(LABEL_FILTER?'이 라벨에 해당하는 문제가 없어요. 위에서 라벨을 켜보세요.':'아직 등록된 문제가 없어요.')+'</p>'));
 
 panel=__sec.interview=document.createElement('div');
 /* Task 2: Take an Interview */
 var info2=speakingTaskInfo('interview');
 panel.appendChild(el('<div class="task-head">'+taskHeader(info2)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info2.hint+'</p>'));
-visibleItems(DATA.speaking.filter(function(t){return t.taskType==='interview';})).forEach(function(task){
+visibleItems(allSpeaking().filter(function(t){return t.taskType==='interview';})).forEach(function(task){
 var card=el('<div class="card"></div>');
 var head=el('<div class="row" style="justify-content:space-between;"></div>');
 var spTitle=el('<div><strong>'+escapeHtml(task.title)+'</strong></div>');
@@ -3728,12 +3773,12 @@ head.appendChild(spTitle);
 var actionsRow=el('<div class="row" style="margin-bottom:6px;"></div>');
 var renameCtl=inlineRename(actionsRow, task, renderWritingSpeaking, {external:true});
 var imgCtl=inlineImageToggle(actionsRow, task, 'image', renderWritingSpeaking, {external:true});
-head.appendChild(kebabMenu([
+head.appendChild(kebabMenu(menuFor(task, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(task, renderWritingSpeaking),
 {label:task.image?'사진 변경/삭제':'사진 추가', onClick:function(){ imgCtl.open(); }},
 {label:'삭제', danger:true, onClick:function(){ markDeleted(task.id); DATA.speaking=DATA.speaking.filter(function(x){return x.id!==task.id;}); saveData(); renderWritingSpeaking(); }}
-]));
+])));
 card.appendChild(head);
 if(task.image){ var timg=el('<img style="max-width:100%;border-radius:8px;border:1px solid var(--border);margin-top:10px;display:block;">'); timg.src=task.image; card.appendChild(timg); }
 card.appendChild(el('<p style="margin-top:10px;">'+escapeHtml(task.prompt)+'</p>'));
@@ -3760,7 +3805,7 @@ card.appendChild(buildNotepad(task.id, '준비 시간에 말할 내용을 메모
 card.appendChild(buildRecorderControl());
 panel.appendChild(card);
 });
-if(visibleItems(DATA.speaking.filter(function(t){return t.taskType==='interview';})).length===0) panel.appendChild(el('<p class="muted">'+(LABEL_FILTER?'이 라벨에 해당하는 문제가 없어요. 위에서 라벨을 켜보세요.':'아직 등록된 문제가 없어요.')+'</p>'));
+if(visibleItems(allSpeaking().filter(function(t){return t.taskType==='interview';})).length===0) panel.appendChild(el('<p class="muted">'+(LABEL_FILTER?'이 라벨에 해당하는 문제가 없어요. 위에서 라벨을 켜보세요.':'아직 등록된 문제가 없어요.')+'</p>'));
 
 __real.appendChild(buildAddPanel('speaking','스피킹 문제', buildSpeakingForm));
 __real.appendChild(taskSubtabs('speaking', SPEAKING_TASK_TYPES, renderWritingSpeaking));
@@ -4074,6 +4119,7 @@ if(el2){ el2.textContent=msg; el2.style.color=color||'var(--text-3)'; }
 };
 var stamp=new Date().toISOString().slice(0,10);
 var obj={}, name='', count=0;
+/* 기본 문제는 코드에 있는 것이라 내보내지 않아요 */
 if(kind==='reading'){ obj={reading:DATA.reading||[]}; name='toefl-reading-'+stamp+'.json'; count=obj.reading.length; }
 else if(kind==='listening'){ obj={listening:DATA.listening||[]}; name='toefl-listening-'+stamp+'.json'; count=obj.listening.length; }
 else if(kind==='vocab'){ obj={vocab:DATA.vocab||[]}; name='toefl-vocab-'+stamp+'.json'; count=obj.vocab.length; }

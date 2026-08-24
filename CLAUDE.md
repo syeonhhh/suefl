@@ -7,23 +7,33 @@
 
 ```
 C:\Claude\suefl\
-  index.html          # 사이트 전체 (HTML+CSS+JS 한 파일, ~3200줄)
-  imports\            # 교재에서 변환한 문제 JSON들
-    t2-1.json ~ t2-5.json
+  index.html          # 사이트 전체 (HTML+CSS+JS 한 파일)
+  builtin.js          # 사이트 기본 제공 문제 ('기본' 라벨로 모두에게 보임)
+  imports\            # 교재에서 변환한 문제 JSON들 (개인 가져오기용)
+    t2-1.json ~ t2-5.json, w-task2-20days.json
   CLAUDE.md           # 이 문서
 ```
 
+`index.html`과 `builtin.js`는 **함께 배포**해야 함 (폴더째 드래그).
+
 ## 배포
 
-1. `index.html` 수정
-2. 문법 검사 (필수):
-   ```bash
-   node -e "new Function(require('fs').readFileSync('index.html','utf8').replace(/^[\s\S]*?<script>/,'').replace(/<\/script>[\s\S]*$/,''))" && echo OK
-   ```
-3. https://app.netlify.com/projects/suefl → Deploys 탭에 `index.html` 드래그 앤 드롭
+1. `index.html` (또는 `builtin.js`) 수정
+2. 검증: 브라우저에서 실제로 열어 콘솔 에러 0건 확인
+   - ⚠️ 이 PC에 node가 없어서 예전 문법 검사 명령은 못 씀
+   - 로컬 서버: `python -m http.server 8000` → `http://127.0.0.1:8000/index.html`
+3. https://app.netlify.com/projects/suefl → Deploys 탭에 **폴더째 드래그 앤 드롭**
+   - ⚠️ `index.html` 파일 하나만 끌면 `builtin.js`가 빠져서 기본 문제가 안 보임
+   - 끌 것: `index.html` + `builtin.js`가 든 폴더
 4. 사이트: https://suefl.netlify.app
 
 Netlify CLI/API 자동 배포는 안 됨. 수동 드래그만 가능.
+배포 이력은 Netlify Deploys 탭에 남아서 언제든 이전 버전으로 롤백 가능.
+
+## 버전 관리
+
+git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으로 이력을 남길 것.
+원격(GitHub)은 아직 없음 — 노트북이 고장나면 변환 작업이 사라지므로 언젠가 연결 필요.
 
 ## 사이트 구조
 
