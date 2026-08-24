@@ -1,0 +1,17 @@
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 편집기
+.vscode/
+.idea/
+*.swp
+
+# 내보내기로 생성되는 파일 (필요할 때 다시 뽑으면 됨)
+toefl-all-*.json
+toefl-reading-*.json
+toefl-listening-*.json
+toefl-writing-*.json
+toefl-speaking-*.json
+toefl-vocab-*.json
