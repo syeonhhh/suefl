@@ -722,6 +722,38 @@ box.appendChild(node);
 });
 }
 
+/* 모범답안 보기 — 직접 써보기 전에 정답부터 보는 걸 살짝 막아요.
+   getTyped()로 지금 쓴 글을 읽어서 50자 미만이면 한 번 더 확인받습니다. */
+function buildSampleControl(item, getTyped){
+if(!item || !item.sample || !String(item.sample).trim()) return null;
+var btn=el('<button class="btn small">📄 모범답안 보기</button>');
+var box=el('<div style="display:none;margin-top:8px;background:var(--accent-bg);border-radius:8px;padding:10px 12px;white-space:pre-line;font-size:14px;line-height:1.75;"></div>');
+box.appendChild(el('<div style="font-size:12px;font-weight:650;color:var(--accent-text);margin-bottom:6px;">모범답안</div>'));
+var body=el('<div></div>');
+body.textContent=String(item.sample);
+box.appendChild(body);
+var armed=false, timer=null;
+function reveal(){
+box.style.display='block';
+btn.textContent='📄 모범답안 접기';
+btn.classList.remove('danger');
+armed=false;
+}
+btn.onclick=function(){
+if(box.style.display!=='none'){ box.style.display='none'; btn.textContent='📄 모범답안 보기'; return; }
+var typed=String(getTyped()||'').trim().length;
+if(typed>=50 || armed){ reveal(); return; }
+armed=true;
+btn.textContent='먼저 직접 써본 뒤에 보는 걸 권해요. 그래도 볼까요?';
+btn.classList.add('danger');
+if(timer) clearTimeout(timer);
+timer=setTimeout(function(){
+if(armed){ armed=false; btn.textContent='📄 모범답안 보기'; btn.classList.remove('danger'); }
+}, 6000);
+};
+return {button:btn, box:box};
+}
+
 function requestWritingFeedback(taskDescription, essayText, feedbackBox, statusEl, btn){
 if(!essayText.trim()){
 statusEl.textContent='첨삭받을 답안을 먼저 작성해주세요.';
@@ -3363,11 +3395,12 @@ bodyHolder.appendChild(b1);
 } else if(selectedType==='email'){
 var t2=titleFieldsControl(DATA.writing.email.length+1);
 var promptIn=el('<textarea placeholder="이메일 작성 상황/지시문" style="min-height:90px;"></textarea>');
-bodyHolder.appendChild(t2.wrapper); bodyHolder.appendChild(promptIn);
+var sampleIn=el('<textarea placeholder="모범답안 (선택) — 넣으면 연습 화면에서 볼 수 있어요" style="min-height:90px;margin-top:8px;"></textarea>');
+bodyHolder.appendChild(t2.wrapper); bodyHolder.appendChild(promptIn); bodyHolder.appendChild(sampleIn);
 var b2=el('<button class="btn primary" style="margin-top:8px;">저장</button>');
 b2.onclick=function(){
 if(!promptIn.value.trim()){ inlineWarn(this, '지시문을 입력해주세요.'); return; }
-DATA.writing.email.push({id:uid(), label:labelCtl.get(), title:t2.getTitle(), prompt:promptIn.value.trim()});
+DATA.writing.email.push({id:uid(), label:labelCtl.get(), title:t2.getTitle(), prompt:promptIn.value.trim(), sample:sampleIn.value.trim()});
 saveData(); renderWritingSpeaking();
 };
 bodyHolder.appendChild(b2);
@@ -3377,14 +3410,15 @@ var t3=titleFieldsControl(DATA.writing.discussion.length+1);
 var profIn=el('<textarea placeholder="교수 질문/토론 주제" style="min-height:70px;margin-bottom:8px;"></textarea>');
 var peer1=el('<input type="text" placeholder="급우 1 의견 - 선택" style="width:100%;margin-bottom:6px;">');
 var peer2=el('<input type="text" placeholder="급우 2 의견 - 선택" style="width:100%;">');
-bodyHolder.appendChild(t3.wrapper); bodyHolder.appendChild(profIn); bodyHolder.appendChild(peer1); bodyHolder.appendChild(peer2);
+var dsSampleIn=el('<textarea placeholder="모범답안 (선택) — 넣으면 연습 화면에서 볼 수 있어요" style="min-height:90px;margin-top:8px;"></textarea>');
+bodyHolder.appendChild(t3.wrapper); bodyHolder.appendChild(profIn); bodyHolder.appendChild(peer1); bodyHolder.appendChild(peer2); bodyHolder.appendChild(dsSampleIn);
 var b3=el('<button class="btn primary" style="margin-top:8px;">저장</button>');
 b3.onclick=function(){
 if(!profIn.value.trim()){ inlineWarn(this, '교수 질문을 입력해주세요.'); return; }
 var refs=[];
 if(peer1.value.trim()) refs.push({label:'급우 1', text:peer1.value.trim()});
 if(peer2.value.trim()) refs.push({label:'급우 2', text:peer2.value.trim()});
-DATA.writing.discussion.push({id:uid(), label:labelCtl.get(), title:t3.getTitle(), professorPrompt:profIn.value.trim(), refs:refs});
+DATA.writing.discussion.push({id:uid(), label:labelCtl.get(), title:t3.getTitle(), professorPrompt:profIn.value.trim(), refs:refs, sample:dsSampleIn.value.trim()});
 saveData(); renderWritingSpeaking();
 };
 bodyHolder.appendChild(b3);
@@ -3495,6 +3529,7 @@ var card=el('<div class="listitem" style="align-items:flex-start;"></div>');
 var infoWrap=el('<div style="flex:1;"></div>');
 var tLine=el('<div><strong>'+escapeHtml(item.title)+'</strong></div>');
 tLine.appendChild(labelPill(item));
+if(item.sample && String(item.sample).trim()) tLine.appendChild(el('<span class="pill accent" style="margin-left:6px;font-size:11px;">모범답안</span>'));
 infoWrap.appendChild(tLine);
 var actionsRow=el('<div class="row" style="margin-top:6px;"></div>');
 infoWrap.appendChild(actionsRow);
@@ -3524,6 +3559,7 @@ var card=el('<div class="listitem" style="align-items:flex-start;"></div>');
 var infoWrap=el('<div style="flex:1;"></div>');
 var tLine=el('<div><strong>'+escapeHtml(item.title)+'</strong></div>');
 tLine.appendChild(labelPill(item));
+if(item.sample && String(item.sample).trim()) tLine.appendChild(el('<span class="pill accent" style="margin-left:6px;font-size:11px;">모범답안</span>'));
 infoWrap.appendChild(tLine);
 var actionsRow=el('<div class="row" style="margin-top:6px;"></div>');
 infoWrap.appendChild(actionsRow);
@@ -3656,7 +3692,10 @@ var fbStatusEl=el('<p class="muted" style="margin:8px 0 0;min-height:16px;"></p>
 var fbBox=el('<div class="passage" style="display:none;margin-top:8px;white-space:pre-wrap;font-size:13.5px;"></div>');
 fbBtn.onclick=function(){ requestWritingFeedback(promptText, ta.value, fbBox, fbStatusEl, fbBtn); };
 fbBtnRow.appendChild(fbBtn);
+var sampleCtl=buildSampleControl(item, function(){ return ta.value; });
+if(sampleCtl) fbBtnRow.appendChild(sampleCtl.button);
 card.appendChild(fbBtnRow);
+if(sampleCtl) card.appendChild(sampleCtl.box);
 card.appendChild(fbStatusEl);
 card.appendChild(fbBox);
 panel.appendChild(card);
@@ -3711,7 +3750,10 @@ var fbBox=el('<div class="passage" style="display:none;margin-top:8px;white-spac
 var discTaskDesc='교수 질문: '+(item.professorPrompt||'')+'\n'+(item.refs||[]).map(function(r){return r.label+': '+r.text;}).join('\n');
 fbBtn.onclick=function(){ requestWritingFeedback(discTaskDesc, ta.value, fbBox, fbStatusEl, fbBtn); };
 fbBtnRow.appendChild(fbBtn);
+var sampleCtl=buildSampleControl(item, function(){ return ta.value; });
+if(sampleCtl) fbBtnRow.appendChild(sampleCtl.button);
 card.appendChild(fbBtnRow);
+if(sampleCtl) card.appendChild(sampleCtl.box);
 card.appendChild(fbStatusEl);
 card.appendChild(fbBox);
 panel.appendChild(card);
