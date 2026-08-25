@@ -330,6 +330,32 @@ color-scheme:dark;
 @media (prefers-reduced-motion:reduce){
 *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
 }
+
+/* 필기 화면 — 지문 왼쪽, 문제 오른쪽. 지문은 스크롤해도 따라와요 */
+.analysis-split{display:flex;gap:18px;align-items:flex-start;}
+.analysis-left{flex:0 0 45%;max-width:45%;min-width:0;position:sticky;top:12px;}
+.analysis-right{flex:1 1 auto;min-width:0;}
+.analysis-split.single .analysis-left{display:none;}
+.analysis-split.single .analysis-right{flex:1 1 100%;}
+@media(max-width:960px){
+.analysis-split{flex-direction:column;}
+.analysis-left{position:static;flex:1 1 auto;max-width:none;width:100%;}
+.analysis-right{width:100%;}
+}
+
+/* 드래그하면 그 자리에 뜨는 도구 — 색 고르러 위로 올라갈 필요 없이 한 번에 */
+.selpop{position:fixed;z-index:9000;display:none;background:var(--card);border:1px solid var(--border-strong);
+border-radius:10px;box-shadow:0 6px 22px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.06);padding:8px 10px;font-size:12px;color:var(--text);max-width:280px;}
+.selpop-row{display:flex;align-items:center;gap:5px;margin-bottom:5px;}
+.selpop-row:last-child{margin-bottom:0;}
+.selpop-lab{flex:0 0 44px;color:var(--text-2);font-size:11px;}
+.selpop-sw{width:19px;height:19px;border-radius:5px;border:1px solid var(--border-strong);padding:0;cursor:pointer;transition:transform .08s;}
+.selpop-sw:hover{transform:scale(1.18);}
+.selpop-act{font:inherit;font-size:11.5px;padding:4px 9px;border-radius:6px;border:1px solid var(--border-strong);
+background:var(--bg);color:var(--text);cursor:pointer;}
+.selpop-act:hover{background:var(--accent-bg);border-color:var(--accent);}
+.selpop-word{font-weight:650;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.selpop-msg{color:var(--accent-text);font-size:11px;margin-top:5px;}
 </style>
 </head>
 <body>
@@ -1095,7 +1121,7 @@ try{ localStorage.setItem(key, value); clearStorageError(); return true; }
 catch(e){ showStorageError(e); return false; }
 }
 function loadData(){ try{ var d=JSON.parse(localStorage.getItem('toeflData')); return d?migrateData(d):defaultData(); }catch(e){ return defaultData(); } }
-function saveData(){ safeSet('toeflData', JSON.stringify(DATA)); scheduleCloudPush(); }
+function saveData(){ var ok=safeSet('toeflData', JSON.stringify(DATA)); scheduleCloudPush(); return ok; }
 var DATA = loadData();
 
 function loadNotes(){ try{ return JSON.parse(localStorage.getItem('toeflNotes'))||{}; }catch(e){ return {}; } }
@@ -2312,6 +2338,8 @@ body.appendChild(left);
 var right=el('<div class="toefl-pane-right"></div>');
 body.appendChild(right);
 frame.appendChild(body);
+/* 문제 풀다 모르는 단어를 만나면 드래그해서 바로 단어장에 */
+registerSelTools(frame, {});
 panel.appendChild(frame);
 
 var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모장 보기/숨기기</button>');
@@ -2367,6 +2395,8 @@ recordPractice();
 };
 footer.appendChild(resultEl); footer.appendChild(checkBtn);
 frame.appendChild(footer);
+/* 문제 풀다 모르는 단어를 만나면 드래그해서 바로 단어장에 */
+registerSelTools(frame, {});
 panel.appendChild(frame);
 
 var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모장 보기/숨기기</button>');
@@ -2723,6 +2753,8 @@ body.appendChild(left);
 var right=el('<div class="toefl-pane-right"></div>');
 body.appendChild(right);
 frame.appendChild(body);
+/* 문제 풀다 모르는 단어를 만나면 드래그해서 바로 단어장에 */
+registerSelTools(frame, {});
 panel.appendChild(frame);
 
 var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모장 보기/숨기기</button>');
@@ -2858,6 +2890,125 @@ renderQ();
 }
 
 /* ================= ANALYSIS / 필기 ================= */
+/* ---- 드래그하면 뜨는 선택 도구 ----
+   영역마다 쓸 수 있는 동작이 달라요. 필기 화면은 서식+메모+단어장,
+   문제 푸는 화면은 단어장만. 등록된 영역 안에서 드래그할 때만 뜹니다. */
+var SEL_ROOTS=[];
+var SELPOP=null;
+function registerSelTools(root, opts){
+if(!root) return;
+/* 아직 화면에 붙기 전에 등록되므로 여기서 detach 여부를 보면 안 돼요.
+   떨어져 나간 영역 정리는 실제로 드래그할 때(mouseup) 합니다. */
+SEL_ROOTS=SEL_ROOTS.filter(function(r){ return r.root!==root; });
+SEL_ROOTS.push({root:root, opts:opts||{}});
+}
+function selPopEl(){
+if(!SELPOP){
+SELPOP=el('<div class="selpop"></div>');
+/* mousedown을 막아야 팝업을 눌러도 드래그한 선택이 안 풀려요 */
+SELPOP.addEventListener('mousedown', function(e){ e.preventDefault(); });
+document.body.appendChild(SELPOP);
+}
+return SELPOP;
+}
+function hideSelPop(){ if(SELPOP) SELPOP.style.display='none'; }
+function placeSelPop(rect){
+var pop=selPopEl();
+pop.style.visibility='hidden'; pop.style.display='block'; pop.style.left='0px'; pop.style.top='0px';
+var w=pop.offsetWidth, h=pop.offsetHeight;
+var left=Math.max(8, Math.min(window.innerWidth-w-8, rect.left+rect.width/2-w/2));
+var top=rect.top-h-8;
+if(top<8) top=Math.min(window.innerHeight-h-8, rect.bottom+8);
+pop.style.left=left+'px'; pop.style.top=top+'px'; pop.style.visibility='visible';
+}
+function selPopMsg(text){
+var pop=selPopEl();
+var old=pop.querySelector('.selpop-msg');
+if(old) old.remove();
+var m=el('<div class="selpop-msg"></div>');
+m.textContent=text;
+pop.appendChild(m);
+}
+var SELPOP_HL=['#fff59d','#a5d6a7','#f8bbd0','#90caf9','#ffcc80'];
+var SELPOP_LINE=['#1a1a1a','#d32f2f','#1565c0','#2e7d32'];
+function buildSelPop(opts, selText){
+var pop=selPopEl();
+pop.innerHTML='';
+function swatchRow(label, colors, onPick){
+var row=el('<div class="selpop-row"></div>');
+row.appendChild(el('<span class="selpop-lab">'+label+'</span>'));
+colors.forEach(function(c){
+var sw=el('<button type="button" class="selpop-sw"></button>');
+sw.style.background=c;
+sw.title=label+' '+c;
+sw.onclick=function(){ onPick(c); hideSelPop(); };
+row.appendChild(sw);
+});
+pop.appendChild(row);
+}
+if(opts.onFormat){
+swatchRow('형광펜', SELPOP_HL,   function(c){ opts.onFormat('hl', c); });
+swatchRow('밑줄',   SELPOP_LINE, function(c){ opts.onFormat('ul', c); });
+swatchRow('네모',   SELPOP_LINE, function(c){ opts.onFormat('box', c); });
+}
+var actRow=el('<div class="selpop-row" style="gap:6px;"></div>');
+if(opts.onNote){
+var nb=el('<button type="button" class="selpop-act">메모</button>');
+nb.onclick=function(){ opts.onNote(); hideSelPop(); };
+actRow.appendChild(nb);
+}
+var wb=el('<button type="button" class="selpop-act">＋ 단어장</button>');
+wb.onclick=function(){ quickAddWord(selText, function(msg){ selPopMsg(msg); }); };
+actRow.appendChild(wb);
+pop.appendChild(actRow);
+return pop;
+}
+
+/* 모르는 단어를 드래그해서 바로 단어장에. API 키가 있으면 뜻은 뒤에서 알아서 채워져요 */
+function quickAddWord(text, onMsg){
+var w=String(text||'').replace(/\s+/g,' ').trim();
+if(!w){ onMsg('단어를 먼저 드래그해주세요.'); return; }
+if(w.length>80){ onMsg('너무 길어요. 단어나 짧은 표현만 추가할 수 있어요.'); return; }
+var dup=null;
+(DATA.vocab||[]).forEach(function(v){ if(!dup && String(v.word||'').toLowerCase()===w.toLowerCase()) dup=v; });
+if(dup){ onMsg('이미 단어장에 있어요.'); return; }
+var entry={id:uid(), word:w, pos:'', def:'', synonyms:'', example:'', image:null};
+DATA.vocab.push(entry);
+if(!saveData()){ DATA.vocab.pop(); onMsg('저장에 실패했어요.'); return; }
+/* 단어 탭이 이미 그려져 있으면 바로 반영 */
+try{ renderVocab(); }catch(e){}
+if(loadApiKey()){
+onMsg('추가했어요. 뜻을 찾는 중...');
+requestVocabEnrichment(w, function(d){
+entry.pos=d.pos||''; entry.def=d.def||''; entry.synonyms=d.synonyms||''; entry.example=d.example||'';
+saveData();
+try{ renderVocab(); }catch(e){}
+onMsg('추가했어요 — ' + (entry.def || '뜻은 단어 탭에서 확인하세요'));
+}, function(){ onMsg('추가했어요. 뜻은 단어 탭에서 채워주세요.'); });
+} else {
+onMsg('단어장에 추가했어요. 뜻은 단어 탭에서 채워주세요.');
+}
+}
+
+document.addEventListener('mouseup', function(){
+setTimeout(function(){
+var sel=window.getSelection();
+if(!sel || !sel.rangeCount || sel.isCollapsed){ hideSelPop(); return; }
+var txt=sel.toString().trim();
+if(!txt){ hideSelPop(); return; }
+var node=sel.getRangeAt(0).commonAncestorContainer;
+var elNode=node.nodeType===1?node:node.parentNode;
+SEL_ROOTS=SEL_ROOTS.filter(function(r){ return document.body.contains(r.root); });
+var hit=null;
+SEL_ROOTS.forEach(function(r){ if(!hit && r.root.contains(elNode)) hit=r; });
+if(!hit){ hideSelPop(); return; }
+buildSelPop(hit.opts, txt);
+placeSelPop(sel.getRangeAt(0).getBoundingClientRect());
+}, 0);
+});
+document.addEventListener('scroll', hideSelPop, true);
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') hideSelPop(); });
+
 function renderAnalysisView(item, kind){
 var panelId = kind==='reading' ? 'panel-reading' : 'panel-listening';
 var panel=document.getElementById(panelId);
@@ -3150,14 +3301,21 @@ freeNotepad.oninput=function(){ NOTES[item.id]=freeNotepad.value; saveNotes(); }
 notesToggleBtn2.onclick=function(){ freeNotepad.style.display=freeNotepad.style.display==='none'?'block':'none'; };
 card.appendChild(notesToggleBtn2); card.appendChild(freeNotepad);
 
+/* 지문(왼쪽)과 문제(오른쪽)를 나란히 — 지문을 보면서 문제를 분석할 수 있게 */
+var splitWrap=el('<div class="analysis-split"></div>');
+var splitL=el('<div class="analysis-left"></div>');
+var splitR=el('<div class="analysis-right"></div>');
+splitWrap.appendChild(splitL); splitWrap.appendChild(splitR);
+card.appendChild(splitWrap);
+
 var annotEntry=getAnnotEntry(item.id);
 var rawText = kind==='reading' ? (item.taskType==='completeWords'?stripBlankMarkers(item.passage):item.passage) : item.script;
 if(rawText && String(rawText).trim()){
-var passageDiv=el('<div class="passage" style="max-height:440px;overflow-y:auto;"></div>');
+var passageDiv=el('<div class="passage" style="max-height:calc(100vh - 190px);overflow-y:auto;"></div>');
 passageDiv.dataset.zoneKey='passage';
 passageDiv.innerHTML = annotEntry.passage || escapeHtml(rawText);
-card.appendChild(passageDiv);
-card.appendChild(el('<p class="muted" style="margin-top:8px;">밑줄 아래 메모는 자동으로 저장돼요. 위 메모장과는 별개로 보관돼요.</p>'));
+splitL.appendChild(passageDiv);
+splitL.appendChild(el('<p class="muted" style="margin-top:8px;">드래그하면 그 자리에 색 고르는 창이 떠요. 밑줄 아래 메모는 자동 저장돼요.</p>'));
 cleanupEmptySpans(passageDiv);
 refreshBoxGroups(passageDiv);
 zones.push(passageDiv);
@@ -3165,8 +3323,8 @@ attachZoneClickHandler(passageDiv);
 }
 
 if(item.questions && item.questions.length){
-card.appendChild(el('<h3 style="margin-top:22px;margin-bottom:4px;font-size:15px;">문제·선지 분석</h3>'));
-card.appendChild(el('<p class="muted" style="margin:0 0 10px;">문제 문장과 보기(선지) 모두 지문과 같은 방식으로 표시할 수 있어요. 채점된 문제는 정답과 내가 고른 답이 표시돼요.</p>'));
+splitR.appendChild(el('<h3 style="margin-top:0;margin-bottom:4px;font-size:15px;">문제·선지 분석</h3>'));
+splitR.appendChild(el('<p class="muted" style="margin:0 0 10px;">문제 문장과 보기(선지) 모두 지문과 같은 방식으로 표시할 수 있어요. 채점된 문제는 정답과 내가 고른 답이 표시돼요.</p>'));
 var examRec = PROGRESS[kind==='reading'?'readingScores':'listeningScores'][item.id];
 item.questions.forEach(function(qq, qi){
 var qBlock=el('<div style="margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);"></div>');
@@ -3242,9 +3400,12 @@ expBtn.textContent=open?'해설 닫기':'해설 보기';
 expWrap.appendChild(expBtn); expWrap.appendChild(expBody);
 qBlock.appendChild(expWrap);
 }
-card.appendChild(qBlock);
+splitR.appendChild(qBlock);
 });
 }
+
+/* 한쪽이 비면 나머지가 전체 폭을 쓰게 */
+if(!splitL.childNodes.length) splitWrap.classList.add('single');
 
 panel.appendChild(card);
 
@@ -3395,6 +3556,11 @@ finishZoneEdit(zoneEl);
 hideErase();
 }
 function attachZoneClickHandler(zoneEl){
+/* 이 영역에서 드래그하면 서식·메모·단어장 도구가 그 자리에 떠요 */
+registerSelTools(zoneEl, {
+onFormat: function(type, color){ applyFormat(type, color); },
+onNote: function(){ addNote(); }
+});
 zoneEl.addEventListener('click', function(e){
 var t=e.target;
 if(t && t.classList && t.classList.contains('annot-notetext')){
