@@ -4388,9 +4388,37 @@ if(sec==='reading' && taskId==='completeWords') return parseBlanks(item.passage|
 if(sec==='reading' || sec==='listening') return (item.questions||[]).length;
 return 1;
 }
+
+/* 교재 한 세트(Hackers Test 등)에 대화·강의가 여러 개 들어있는 경우가 있어요.
+   그건 사실 별개의 지문이므로 대본 단위로 쪼개서 각각을 하나의 문제로 봅니다.
+   통째로 뽑으면 한 번에 16문항이 딸려와 구성이 실제 시험과 어긋나요. */
+function mockSources(sec, taskId){
+var out=[];
+mockPool(sec, taskId).forEach(function(item){
+if(sec==='writing' || sec==='speaking'){ out.push({item:item, questions:null}); return; }
+if(sec==='reading' && taskId==='completeWords'){ out.push({item:item, questions:null}); return; }
+var qs=item.questions||[];
+var hasPerQ=false;
+qs.forEach(function(q){ if(q && q.script && String(q.script).trim()) hasPerQ=true; });
+if(!hasPerQ){ out.push({item:item, questions:qs}); return; }
+var order=[], map={};
+qs.forEach(function(q){
+var key=String(q.script||item.script||'').trim();
+if(!map[key]){ map[key]={item:item, questions:[]}; order.push(key); }
+map[key].questions.push(q);
+});
+order.forEach(function(k){ out.push(map[k]); });
+});
+return out;
+}
+function mockSourceCount(sec, taskId, src){
+if(sec==='reading' && taskId==='completeWords') return mockItemCount(sec, taskId, src.item);
+if(sec==='reading' || sec==='listening') return (src.questions||[]).length;
+return 1;
+}
 function mockPoolCapacity(sec, taskId){
 var n=0;
-mockPool(sec,taskId).forEach(function(it){ n+=mockItemCount(sec,taskId,it); });
+mockSources(sec,taskId).forEach(function(src){ n+=mockSourceCount(sec,taskId,src); });
 return n;
 }
 function mockUnitsItemCount(sec, units){
@@ -4407,15 +4435,16 @@ MOCK_PLANS[sec].types.forEach(function(t){
 var target=cfg.counts[t.id]||0;
 if(target<=0) return;
 var got=0;
-shuffled(mockPool(sec,t.id)).forEach(function(item){
+shuffled(mockSources(sec,t.id)).forEach(function(src){
 if(got>=target) return;
-var n=mockItemCount(sec,t.id,item);
+var n=mockSourceCount(sec,t.id,src);
 if(n<=0) return;
 /* 지문은 중간에 자를 수 없어요. 하나 더 넣는 게 목표에서 오히려 멀어지면 여기서 멈춥니다. */
 if(got>0 && Math.abs(got+n-target) > Math.abs(got-target)) return;
+var item=src.item;
 if(sec==='reading' && t.id==='completeWords'){ units.push({kind:'blanks', taskId:t.id, item:item}); }
 else if(sec==='reading' || sec==='listening'){
-(item.questions||[]).forEach(function(q,qi){ units.push({kind:'mcq', taskId:t.id, item:item, q:q, qi:qi}); });
+(src.questions||[]).forEach(function(q,qi){ units.push({kind:'mcq', taskId:t.id, item:item, q:q, qi:qi}); });
 }
 else if(sec==='writing'){ units.push({kind:'writing', taskId:t.id, item:item}); }
 else { units.push({kind:'speaking', taskId:t.id, item:item}); }
@@ -4472,7 +4501,7 @@ var tbl=el('<div></div>');
 var inputs={};
 var shortage=[];
 plan.types.forEach(function(t){
-var pool=mockPool(sec,t.id);
+var pool=mockSources(sec,t.id);
 var have=mockPoolCapacity(sec,t.id);
 var row=el('<div class="row" style="gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap;"></div>');
 var nIn=el('<input type="number" min="0" max="60" style="width:66px;">');
