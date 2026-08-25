@@ -3458,7 +3458,7 @@ noteSpan.style.boxShadow='0 2px 6px rgba(0,0,0,0.14)';
 noteSpan.style.zIndex='5';
 noteSpan.style.minWidth='24px';
 noteSpan.style.outline='none';
-noteSpan.addEventListener('input', function(){ persistZone(zone); });
+bindNoteEditing(noteSpan, zone);
 noteSpan.addEventListener('blur', function(){ persistZone(zone); });
 noteSpan.addEventListener('click', function(e){ e.stopPropagation(); });
 noteSpan.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); noteSpan.blur(); } });
@@ -3555,7 +3555,51 @@ styleForSpan(span);
 finishZoneEdit(zoneEl);
 hideErase();
 }
+/* 저장된 필기를 다시 불러오면 메모의 입력 리스너가 사라져요.
+   그대로 두면 고쳐 써도 저장이 안 되니, 영역을 그릴 때마다 다시 붙입니다.
+   표시는 DOM 속성이 아니라 JS 프로퍼티로 — 속성으로 하면 저장된 HTML에
+   같이 들어가서 다음 번에 건너뛰게 됩니다. */
+/* 메모를 비우고 나가면 메모만 없애요. 단어에 칠해둔 형광펜·밑줄은 그대로 둡니다
+   (지우기 버튼 경로와 달리 서식을 잃지 않게). */
+function unwrapEmptyNote(wrapEl, zoneEl){
+var parent=wrapEl.parentNode;
+if(!parent) return;
+var wordEl=wrapEl.querySelector('.annot-word');
+if(wordEl){ while(wordEl.firstChild) parent.insertBefore(wordEl.firstChild, wrapEl); }
+else { parent.insertBefore(document.createTextNode(wrapEl.textContent||''), wrapEl); }
+parent.removeChild(wrapEl);
+finishZoneEdit(zoneEl);
+}
+function noteWrapOf(n){
+var w=n;
+while(w && !(w.classList && w.classList.contains('annot-wrap'))) w=w.parentElement;
+return w;
+}
+function bindNoteEditing(n, zoneEl){
+if(n.__noteBound) return;
+n.__noteBound=true;
+n.contentEditable='true';
+n.style.cursor='text';
+n.title='클릭해서 고쳐 쓸 수 있어요. 다 지우고 나가면 메모가 없어져요.';
+if(!n.getAttribute('data-placeholder')) n.setAttribute('data-placeholder','메모');
+n.addEventListener('input', function(){ persistZone(zoneEl); });
+n.addEventListener('blur', function(){
+if(!n.textContent.trim()){
+var w=noteWrapOf(n);
+if(w){ unwrapEmptyNote(w, zoneEl); return; }
+}
+finishZoneEdit(zoneEl);
+});
+}
+
+function rebindNotes(zoneEl){
+Array.prototype.forEach.call(zoneEl.querySelectorAll('.annot-notetext'), function(n){
+bindNoteEditing(n, zoneEl);
+});
+}
+
 function attachZoneClickHandler(zoneEl){
+rebindNotes(zoneEl);
 /* 이 영역에서 드래그하면 서식·메모·단어장 도구가 그 자리에 떠요 */
 registerSelTools(zoneEl, {
 onFormat: function(type, color){ applyFormat(type, color); },
