@@ -2994,6 +2994,58 @@ if(span.dataset.box){ span.style.border='2px solid '+span.dataset.box; span.styl
 else { span.style.border=''; span.style.padding=''; span.style.boxDecorationBreak=''; span.style.webkitBoxDecorationBreak=''; }
 span.style.borderRadius=(span.dataset.hl||span.dataset.box)?'2px':'';
 }
+/* 네모박스가 다른 서식 때문에 여러 span으로 쪼개져도 하나로 보이게.
+   같은 boxgroup끼리 맞닿은 쪽 테두리를 없앱니다. */
+function refreshBoxGroups(zoneEl){
+var spans=zoneEl.querySelectorAll('span[data-box]');
+Array.prototype.forEach.call(spans, function(sp){
+var g=sp.dataset.boxgroup;
+function joined(n){
+return !!(g && n && n.nodeType===1 && n.dataset && n.dataset.box===sp.dataset.box && n.dataset.boxgroup===g);
+}
+var L=joined(sp.previousSibling), R=joined(sp.nextSibling);
+sp.style.borderLeftWidth  = L?'0':'2px';
+sp.style.borderRightWidth = R?'0':'2px';
+sp.style.paddingLeft  = L?'0':'2px';
+sp.style.paddingRight = R?'0':'2px';
+sp.style.borderTopLeftRadius = sp.style.borderBottomLeftRadius = L?'0':'2px';
+sp.style.borderTopRightRadius = sp.style.borderBottomRightRadius = R?'0':'2px';
+});
+}
+
+/* 서식이 똑같은 이웃 span을 하나로 합쳐요.
+   이게 없으면 지웠다 다시 칠할 때 조각난 만큼 박스가 여러 개 생깁니다. */
+function mergeAdjacentFmtSpans(zoneEl){
+var guard=0;
+while(guard++ < 400){
+var spans=zoneEl.querySelectorAll('span[data-annot="fmt"]');
+var merged=false;
+for(var i=0;i<spans.length;i++){
+var a=spans[i], b=a.nextSibling;
+if(!b || b.nodeType!==1 || !b.dataset || b.dataset.annot!=='fmt') continue;
+if(a.dataset.hl!==b.dataset.hl) continue;
+if(a.dataset.ul!==b.dataset.ul) continue;
+if(a.dataset.box!==b.dataset.box) continue;
+if(a.dataset.boxgroup!==b.dataset.boxgroup) continue;
+if(a.querySelector('.annot-wrap') || b.querySelector('.annot-wrap')) continue;
+while(b.firstChild) a.appendChild(b.firstChild);
+b.parentNode.removeChild(b);
+a.normalize();
+merged=true; break;
+}
+if(!merged) break;
+}
+}
+
+/* 편집 후 마무리 — 빈 span 정리 → 텍스트 노드 병합 → span 병합 → 박스 테두리 → 저장 */
+function finishZoneEdit(zoneEl){
+cleanupEmptySpans(zoneEl);
+try{ zoneEl.normalize(); }catch(e){}
+mergeAdjacentFmtSpans(zoneEl);
+refreshBoxGroups(zoneEl);
+persistZone(zoneEl);
+}
+
 function cleanupEmptySpans(zoneEl){
 var spans=zoneEl.querySelectorAll('span[data-annot="fmt"]');
 spans.forEach(function(s){
@@ -3006,7 +3058,7 @@ holder.appendChild(frag);
 var pieces=[];
 (function walk(node, inh){
 if(node.nodeType===3){
-if(node.nodeValue.length) pieces.push({text:node.nodeValue, hl:inh.hl, ul:inh.ul, box:inh.box});
+if(node.nodeValue.length) pieces.push({text:node.nodeValue, hl:inh.hl, ul:inh.ul, box:inh.box, boxgroup:inh.boxgroup});
 return;
 }
 if(node.nodeType!==1) return;
@@ -3014,12 +3066,13 @@ if(node.classList && node.classList.contains('annot-wrap')){
 pieces.push({note:node.cloneNode(true)});
 return;
 }
-var next={hl:inh.hl, ul:inh.ul, box:inh.box};
+var next={hl:inh.hl, ul:inh.ul, box:inh.box, boxgroup:inh.boxgroup};
 if(node.dataset){
 if(node.dataset.annot==='fmt'){
 if(node.dataset.hl) next.hl=node.dataset.hl;
 if(node.dataset.ul) next.ul=node.dataset.ul;
 if(node.dataset.box) next.box=node.dataset.box;
+if(node.dataset.boxgroup) next.boxgroup=node.dataset.boxgroup;
 } else if(node.dataset.annot==='highlight'){
 next.hl=node.style.backgroundColor||next.hl;
 } else if(node.dataset.annot==='underline'){
@@ -3027,8 +3080,18 @@ next.ul=node.style.textDecorationColor||next.ul;
 }
 }
 Array.prototype.forEach.call(node.childNodes, function(c){ walk(c, next); });
-})(holder, {hl:null, ul:null, box:null});
-return pieces;
+})(holder, {hl:null, ul:null, box:null, boxgroup:null});
+/* 서식이 같은 이웃 조각은 미리 합쳐요 (span이 쪼개지는 걸 원천 차단) */
+var merged=[];
+pieces.forEach(function(p){
+var last=merged[merged.length-1];
+if(last && !last.note && !p.note
+   && last.hl===p.hl && last.ul===p.ul && last.box===p.box && last.boxgroup===p.boxgroup){
+last.text+=p.text; return;
+}
+merged.push(p);
+});
+return merged;
 }
 function piecesToFragment(pieces){
 var outFrag=document.createDocumentFragment();
@@ -3041,6 +3104,7 @@ span.dataset.annot='fmt';
 if(p.hl) span.dataset.hl=p.hl;
 if(p.ul) span.dataset.ul=p.ul;
 if(p.box) span.dataset.box=p.box;
+if(p.boxgroup) span.dataset.boxgroup=p.boxgroup;
 span.appendChild(document.createTextNode(p.text));
 styleForSpan(span);
 outFrag.appendChild(span);
@@ -3095,6 +3159,7 @@ passageDiv.innerHTML = annotEntry.passage || escapeHtml(rawText);
 card.appendChild(passageDiv);
 card.appendChild(el('<p class="muted" style="margin-top:8px;">밑줄 아래 메모는 자동으로 저장돼요. 위 메모장과는 별개로 보관돼요.</p>'));
 cleanupEmptySpans(passageDiv);
+refreshBoxGroups(passageDiv);
 zones.push(passageDiv);
 attachZoneClickHandler(passageDiv);
 }
@@ -3111,6 +3176,7 @@ qTextDiv.dataset.zoneKey=qZoneKey;
 qTextDiv.innerHTML = annotEntry.opts[qZoneKey] || ('Q'+(qi+1)+'. '+escapeHtml(qq.q||''));
 qBlock.appendChild(qTextDiv);
 cleanupEmptySpans(qTextDiv);
+refreshBoxGroups(qTextDiv);
 zones.push(qTextDiv);
 attachZoneClickHandler(qTextDiv);
 var ans = examRec && examRec.answers ? examRec.answers[qi] : null;
@@ -3123,6 +3189,7 @@ segBox.dataset.zoneKey=segKey;
 segBox.innerHTML = annotEntry.opts[segKey] || escapeHtml(qq.script);
 qBlock.insertBefore(segBox, qTextDiv);
 cleanupEmptySpans(segBox);
+refreshBoxGroups(segBox);
 zones.push(segBox);
 attachZoneClickHandler(segBox);
 }
@@ -3142,6 +3209,7 @@ if(isCorrectOpt && ans) optRow.appendChild(el('<span class="pill green" style="f
 else if(isMyWrongPick) optRow.appendChild(el('<span class="pill" style="background:var(--red-bg);color:var(--red);flex:0 0 auto;margin-top:2px;">내 답</span>'));
 qBlock.appendChild(optRow);
 cleanupEmptySpans(optDiv);
+refreshBoxGroups(optDiv);
 zones.push(optDiv);
 attachZoneClickHandler(optDiv);
 });
@@ -3157,6 +3225,7 @@ expBox.dataset.zoneKey=expKey;
 expBox.innerHTML = annotEntry.opts[expKey] || escapeHtml(qq.explanation);
 expBody.appendChild(expBox);
 cleanupEmptySpans(expBox);
+refreshBoxGroups(expBox);
 zones.push(expBox);
 attachZoneClickHandler(expBox);
 }
@@ -3237,8 +3306,7 @@ wrap.appendChild(noteMark);
 wrap.appendChild(noteSpan);
 range.insertNode(wrap);
 sel.removeAllRanges();
-cleanupEmptySpans(zone);
-persistZone(zone);
+finishZoneEdit(zone);
 showStatus('');
 setTimeout(function(){ noteSpan.focus(); }, 0);
 }
@@ -3250,12 +3318,18 @@ var sel=ctx.sel, range=ctx.range, zone=ctx.zone;
 var frag;
 try{ frag=range.extractContents(); }catch(e){ showStatus('선택한 영역에 서식을 적용할 수 없어요.', true); return; }
 var pieces=flattenExtracted(frag);
-pieces.forEach(function(p){ if(!p.note) p[type]=color; });
+/* 이번에 친 네모박스는 하나의 그룹 — 나중에 다른 서식이 끼어들어 span이 쪼개져도
+   같은 그룹이면 테두리를 이어붙여 한 덩어리로 보이게 합니다. */
+var gid = (type==='box') ? ('bg'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)) : null;
+pieces.forEach(function(p){
+if(p.note) return;
+p[type]=color;
+if(gid) p.boxgroup=gid;
+});
 var outFrag=piecesToFragment(pieces);
 range.insertNode(outFrag);
 sel.removeAllRanges();
-cleanupEmptySpans(zone);
-persistZone(zone);
+finishZoneEdit(zone);
 showStatus('');
 }
 highlightBtn.onclick=function(){ applyFormat('hl', hlPicker.get()); };
@@ -3317,7 +3391,7 @@ parent.removeChild(span);
 styleForSpan(span);
 }
 }
-persistZone(zoneEl);
+finishZoneEdit(zoneEl);
 hideErase();
 }
 function attachZoneClickHandler(zoneEl){
@@ -3487,6 +3561,79 @@ renderFormBody();
 return box;
 }
 
+/* 라이팅 문제 내용 수정 — 리딩/리스닝의 수정 폼과 같은 방식.
+   저장할 때 기존 값(라벨 등)을 잃지 않도록 base에서 가져와 덮어씁니다. */
+function buildWritingEditForm(item, typeKey, afterSave){
+var box=el('<div style="margin-top:10px;padding:12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);width:100%;"></div>');
+box.appendChild(el('<h4 style="margin:0 0 8px;">문제 내용 수정</h4>'));
+var warn=el('<p class="muted" style="margin:6px 0 0;min-height:16px;"></p>');
+var saveBtn=el('<button class="btn primary small">저장</button>');
+var cancelBtn=el('<button class="btn small" style="margin-left:6px;">취소</button>');
+
+if(typeKey==='buildSentence'){
+box.appendChild(el('<p class="muted" style="margin-bottom:6px;">완성된 문장을 그대로 입력하세요. 단어 순서 맞추기 문제로 바뀌어요.</p>'));
+var wordsIn=el('<input type="text" style="width:100%;">');
+wordsIn.value=(item.words||[]).join(' ');
+box.appendChild(wordsIn);
+saveBtn.onclick=function(){
+var words=wordsIn.value.trim().split(/\s+/).filter(Boolean);
+if(words.length<3){ warn.textContent='3단어 이상의 문장을 입력해주세요.'; warn.style.color='var(--red)'; return; }
+item.words=words;
+saveData(); afterSave&&afterSave();
+};
+
+} else if(typeKey==='email'){
+box.appendChild(el('<h4 style="margin:0 0 4px;font-size:13px;">지시문</h4>'));
+var promptIn=el('<textarea style="min-height:100px;width:100%;"></textarea>');
+promptIn.value=item.prompt||'';
+box.appendChild(promptIn);
+box.appendChild(el('<h4 style="margin:10px 0 4px;font-size:13px;">모범답안 (선택)</h4>'));
+var sampleIn=el('<textarea style="min-height:120px;width:100%;"></textarea>');
+sampleIn.value=item.sample||'';
+box.appendChild(sampleIn);
+saveBtn.onclick=function(){
+if(!promptIn.value.trim()){ warn.textContent='지시문을 입력해주세요.'; warn.style.color='var(--red)'; return; }
+item.prompt=promptIn.value.trim();
+item.sample=sampleIn.value.trim();
+saveData(); afterSave&&afterSave();
+};
+
+} else {
+box.appendChild(el('<h4 style="margin:0 0 4px;font-size:13px;">교수 질문</h4>'));
+var profIn=el('<textarea style="min-height:80px;width:100%;"></textarea>');
+profIn.value=item.professorPrompt||'';
+box.appendChild(profIn);
+box.appendChild(el('<h4 style="margin:10px 0 4px;font-size:13px;">급우 의견</h4>'));
+var refs=item.refs||[];
+var p1=el('<input type="text" placeholder="급우 1 의견 - 선택" style="width:100%;margin-bottom:6px;">');
+var p2=el('<input type="text" placeholder="급우 2 의견 - 선택" style="width:100%;">');
+p1.value=(refs[0]&&refs[0].text)||'';
+p2.value=(refs[1]&&refs[1].text)||'';
+box.appendChild(p1); box.appendChild(p2);
+box.appendChild(el('<h4 style="margin:10px 0 4px;font-size:13px;">모범답안 (선택)</h4>'));
+var dsSampleIn=el('<textarea style="min-height:120px;width:100%;"></textarea>');
+dsSampleIn.value=item.sample||'';
+box.appendChild(dsSampleIn);
+saveBtn.onclick=function(){
+if(!profIn.value.trim()){ warn.textContent='교수 질문을 입력해주세요.'; warn.style.color='var(--red)'; return; }
+item.professorPrompt=profIn.value.trim();
+var out=[];
+if(p1.value.trim()) out.push({label:(refs[0]&&refs[0].label)||'급우 1', text:p1.value.trim()});
+if(p2.value.trim()) out.push({label:(refs[1]&&refs[1].label)||'급우 2', text:p2.value.trim()});
+item.refs=out;
+item.sample=dsSampleIn.value.trim();
+saveData(); afterSave&&afterSave();
+};
+}
+
+cancelBtn.onclick=function(){ afterSave&&afterSave(); };
+box.appendChild(warn);
+var btnRow=el('<div class="row" style="margin-top:8px;"></div>');
+btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
+box.appendChild(btnRow);
+return box;
+}
+
 function renderWriting(panel){
 var __real=panel, __sec={};
 panel=__sec.buildSentence=document.createElement('div');
@@ -3509,9 +3656,16 @@ var openBtn=el('<button class="btn primary small">연습하기</button>');
 openBtn.onclick=function(){ renderBuildSentenceExam(item); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
+var wEditBox=null;
+function wToggleEdit(){
+if(wEditBox){ wEditBox.remove(); wEditBox=null; return; }
+wEditBox=buildWritingEditForm(item, 'buildSentence', renderWritingSpeaking);
+actionsRow.appendChild(wEditBox);
+}
 right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderWritingSpeaking),
+{label:'문제 내용 수정', onClick:wToggleEdit},
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.writing.buildSentence=DATA.writing.buildSentence.filter(function(x){return x.id!==item.id;}); saveData(); renderWritingSpeaking(); }}
 ])));
 card.appendChild(right);
@@ -3539,9 +3693,16 @@ var openBtn=el('<button class="btn primary small">작성하기</button>');
 openBtn.onclick=function(){ renderWritingPractice(item, 'email', item.prompt); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
+var wEditBox=null;
+function wToggleEdit(){
+if(wEditBox){ wEditBox.remove(); wEditBox=null; return; }
+wEditBox=buildWritingEditForm(item, 'email', renderWritingSpeaking);
+actionsRow.appendChild(wEditBox);
+}
 right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderWritingSpeaking),
+{label:'문제 내용 수정', onClick:wToggleEdit},
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.writing.email=DATA.writing.email.filter(function(x){return x.id!==item.id;}); saveData(); renderWritingSpeaking(); }}
 ])));
 card.appendChild(right);
@@ -3569,9 +3730,16 @@ var openBtn=el('<button class="btn primary small">작성하기</button>');
 openBtn.onclick=function(){ renderDiscussionPractice(item); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
+var wEditBox=null;
+function wToggleEdit(){
+if(wEditBox){ wEditBox.remove(); wEditBox=null; return; }
+wEditBox=buildWritingEditForm(item, 'discussion', renderWritingSpeaking);
+actionsRow.appendChild(wEditBox);
+}
 right.appendChild(kebabMenu(menuFor(item, [
 {label:'제목 수정', onClick:function(){ renameCtl.open(); }},
 labelChangeAction(item, renderWritingSpeaking),
+{label:'문제 내용 수정', onClick:wToggleEdit},
 {label:'삭제', danger:true, onClick:function(){ markDeleted(item.id); DATA.writing.discussion=DATA.writing.discussion.filter(function(x){return x.id!==item.id;}); saveData(); renderWritingSpeaking(); }}
 ])));
 card.appendChild(right);
