@@ -345,6 +345,23 @@ color-scheme:dark;
 *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
 }
 
+/* 철자 연습 — 빈칸과 같은 방식으로 글자 수만큼 칸을 그리되, 여긴 테마 색을 씁니다 */
+.cw-stem{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;
+font-size:22px;font-weight:650;letter-spacing:.45ch;color:var(--text);}
+input[type=text].cw-input{display:inline-block;margin:0;padding:1px 0 4px;
+font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;
+font-size:22px;line-height:1.4;letter-spacing:.45ch;
+border:none;border-radius:0;background-color:transparent;color:var(--text);
+text-align:left;vertical-align:baseline;
+background-image:linear-gradient(to right,var(--border-strong) 0 1ch,transparent 1ch);
+background-size:1.45ch 2px;background-repeat:repeat-x;background-position:0 100%;}
+input[type=text].cw-input:focus{outline:none;
+background-image:linear-gradient(to right,var(--accent) 0 1ch,transparent 1ch);}
+input[type=text].cw-input.correct{color:var(--green);
+background-image:linear-gradient(to right,var(--green) 0 1ch,transparent 1ch);}
+input[type=text].cw-input.wrong{color:var(--red);
+background-image:linear-gradient(to right,var(--red) 0 1ch,transparent 1ch);}
+
 /* 모의고사 상단 바 */
 .mock-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;
 background:var(--card);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-1);
@@ -1065,6 +1082,7 @@ afterSave && afterSave();
 
 function defaultData(){
 return {
+cwWords:[],
 vocab:[{id:'ex-vocab-1',word:'abundant',pos:'adj.',def:'풍부한, 매우 많은',example:'Fresh water is abundant in this region. (예시 — 삭제하고 직접 단어를 추가해보세요)'}],
 reading:[
 {id:'ex-read-cw', taskType:'completeWords', title:'예시 (삭제 가능)', passage:'Many scientists believe climate change is accelerat[[ing]] due to human activity, and the process may be irrevers[[ible]] once certain thresholds are crossed.', questions:[]},
@@ -1087,6 +1105,7 @@ speaking:[
 function migrateData(d){
 if(!d || typeof d!=='object') return defaultData();
 if(!Array.isArray(d.labels)) d.labels=[];
+if(!Array.isArray(d.cwWords)) d.cwWords=[];
 /* 라벨 없는 기존 항목은 '추가'로 */
 (function(){
 function tag(arr){ (arr||[]).forEach(function(x){ if(x && !x.label) x.label='추가'; }); }
@@ -1331,6 +1350,7 @@ pruneDeleted();
 /* 2) 항목 병합 후, 삭제된 것은 제외 */
 var rd=p.data||{};
 DATA.vocab=dropDeleted(mergeById(DATA.vocab, rd.vocab));
+DATA.cwWords=dropDeleted(mergeById(DATA.cwWords||[], rd.cwWords));
 DATA.reading=dropDeleted(mergeById(DATA.reading, rd.reading));
 DATA.listening=dropDeleted(mergeById(DATA.listening, rd.listening));
 DATA.speaking=dropDeleted(mergeById(DATA.speaking, rd.speaking));
@@ -2132,6 +2152,7 @@ panel.appendChild(buildLabelFilterBar(renderReading, 'reading'));
 READING_TASK_TYPES.filter(function(i){return i.id===curTask('reading',READING_TASK_TYPES);}).forEach(function(info){
 panel.appendChild(el('<div class="task-head">'+taskHeader(info)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info.hint+'</p>'));
+if(info.id==='completeWords') panel.appendChild(buildCwDrill(renderReading));
 var items=visibleItems(allReading().filter(function(x){return x.taskType===info.id;}));
 if(items.length===0){ panel.appendChild(el('<p class="muted" style="margin-bottom:10px;">'+(LABEL_FILTER?'이 라벨에 해당하는 문제가 없어요. 위에서 라벨을 켜보세요.':'아직 등록된 문제가 없어요.')+'</p>')); }
 items.forEach(function(item){
@@ -2422,13 +2443,19 @@ var resultEl=el('<div class="qindicator"></div>');
 var checkBtn=el('<button class="toefl-navbtn primary">채점하기</button>');
 checkBtn.onclick=function(){
 var correct=0;
+/* 틀린 빈칸은 철자 연습 목록에 모아둬요 */
+var stemByNum={};
+blankWordParts(item.passage).forEach(function(pt){ stemByNum[pt.num]=pt.stem; });
+var picked=0;
 refs.forEach(function(r){
 var ok=r.input.value.trim().toLowerCase()===r.answer.trim().toLowerCase();
 r.input.classList.remove('correct','wrong');
 r.input.classList.add(ok?'correct':'wrong');
 r.input.disabled=true;
 if(ok) correct++;
+else { if(cwAddWord(stemByNum[r.num]||'', r.answer, {wrong:true})) picked++; }
 });
+if(picked){ saveData(); }
 resultEl.textContent='결과: '+correct+' / '+refs.length;
 PROGRESS.readingScores[item.id]={answers: refs.map(function(r){ var ok=r.input.classList.contains('correct'); return {selected:r.input.value, correct:ok}; })};
 saveProgress();
@@ -4328,6 +4355,209 @@ __real.appendChild(buildAddPanel('speaking','스피킹 문제', buildSpeakingFor
 __real.appendChild(taskSubtabs('speaking', SPEAKING_TASK_TYPES, renderWritingSpeaking));
 __real.appendChild(buildLabelFilterBar(renderWritingSpeaking, 'speaking'));
 __real.appendChild(__sec[curTask('speaking', SPEAKING_TASK_TYPES)]);
+}
+
+/* ================= Reading Task 1 철자 연습 =================
+   wi_ _ 처럼 어간만 보여주고 나머지 철자를 맞히는 연습.
+   Complete the Words 문제에서 틀린 빈칸은 자동으로 여기에 쌓입니다. */
+function cwWords(){ if(!Array.isArray(DATA.cwWords)) DATA.cwWords=[]; return DATA.cwWords; }
+
+/* 어디까지 보여줄지 — 실제 시험처럼 앞쪽을 남기고 뒤쪽(어미)을 가려요.
+   will → wi + ll,  committee → comm + ittee */
+function cwSplit(word){
+var w=String(word||'').trim();
+var n=Math.max(1, Math.ceil(w.length*0.4));
+if(n>=w.length) n=w.length-1;
+if(n<1) n=1;
+return {stem:w.slice(0,n), ending:w.slice(n)};
+}
+
+/* 지문의 [[답]] 앞에 붙어있는 글자(어간)를 찾아냄 */
+function blankWordParts(passage){
+var parsed=parseBlanks(passage||'');
+var out=[];
+parsed.blanks.forEach(function(b){
+var marker='{{BLANK'+b.num+'}}';
+var i=parsed.display.indexOf(marker);
+var before=(i>=0)?parsed.display.slice(0,i):'';
+var m=before.match(/[A-Za-z'\-]+$/);
+out.push({num:b.num, stem:m?m[0]:'', answer:b.answer});
+});
+return out;
+}
+
+/* 이미 있으면 새로 만들지 않고 틀린 횟수만 올려요 */
+function cwAddWord(stem, ending, opts){
+opts=opts||{};
+var st=String(stem||'').trim(), en=String(ending||'').trim();
+var word=st+en;
+if(!word) return null;
+var found=null;
+cwWords().forEach(function(w){ if(!found && String(w.word).toLowerCase()===word.toLowerCase()) found=w; });
+if(found){
+if(opts.wrong) found.wrong=(found.wrong||0)+1;
+return found;
+}
+var rec={id:uid(), word:word, stem:st, wrong:opts.wrong?1:0, right:0,
+         addedAt:new Date().toISOString().slice(0,10)};
+cwWords().push(rec);
+return rec;
+}
+function cwEnding(rec){ return String(rec.word).slice(String(rec.stem||'').length); }
+
+var CW_DRILL=null;   /* {order:[id...], idx, checked, lastOk} */
+var CW_LIST_OPEN=false;
+var CW_ADD_OPEN=false;
+
+function cwStartDrill(){
+var ws=cwWords();
+if(!ws.length){ CW_DRILL=null; return; }
+CW_DRILL={order:shuffled(ws.map(function(w){return w.id;})), idx:0, checked:false, lastOk:null};
+}
+function cwCurrent(){
+if(!CW_DRILL) return null;
+var id=CW_DRILL.order[CW_DRILL.idx];
+var found=null;
+cwWords().forEach(function(w){ if(w.id===id) found=w; });
+return found;
+}
+
+function buildCwDrill(rerender){
+var card=el('<div class="card"></div>');
+var head=el('<div class="row" style="justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"></div>');
+var ws=cwWords();
+head.appendChild(el('<h3 style="margin:0;">철자 연습 <span class="muted" style="font-weight:400;font-size:13px;">'+ws.length+'단어</span></h3>'));
+var headBtns=el('<div class="row" style="gap:6px;"></div>');
+var addBtn=el('<button class="btn small">+ 단어 추가</button>');
+addBtn.onclick=function(){ CW_ADD_OPEN=!CW_ADD_OPEN; rerender(); };
+var listBtn=el('<button class="btn small">목록</button>');
+listBtn.onclick=function(){ CW_LIST_OPEN=!CW_LIST_OPEN; rerender(); };
+headBtns.appendChild(addBtn); headBtns.appendChild(listBtn);
+head.appendChild(headBtns);
+card.appendChild(head);
+card.appendChild(el('<p class="muted" style="margin:6px 0 0;">가려진 철자를 채워보세요. 문제를 풀다 틀린 단어는 자동으로 여기에 쌓여요.</p>'));
+
+/* ---- 직접 추가 ---- */
+if(CW_ADD_OPEN){
+var addBox=el('<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:8px;"></div>');
+addBox.appendChild(el('<p class="muted" style="margin:0 0 6px;">단어를 그냥 넣으면 앞부분만 남기고 자동으로 가려요. 가릴 위치를 정하려면 <code>comm/ittee</code> 처럼 / 를 넣으세요. 쉼표로 여러 개도 돼요.</p>'));
+var wIn=el('<input type="text" placeholder="committee, wi/ll, irrevers/ible" style="width:100%;">');
+var msg=el('<p class="muted" style="margin:6px 0 0;min-height:16px;"></p>');
+var okBtn=el('<button class="btn primary small" style="margin-top:8px;">추가</button>');
+okBtn.onclick=function(){
+var raw=wIn.value.split(',');
+var added=0, dup=0;
+raw.forEach(function(chunk){
+var t=chunk.trim();
+if(!t) return;
+var st, en;
+if(t.indexOf('/')>=0){ var pr=t.split('/'); st=pr[0].trim(); en=pr.slice(1).join('').trim(); }
+else { var sp=cwSplit(t); st=sp.stem; en=sp.ending; }
+if(!en){ return; }
+var before=cwWords().length;
+cwAddWord(st, en, {});
+if(cwWords().length>before) added++; else dup++;
+});
+if(!added && !dup){ msg.textContent='추가할 단어를 입력해주세요. 두 글자 이상이어야 해요.'; msg.style.color='var(--red)'; return; }
+saveData();
+CW_DRILL=null;
+msg.textContent=added+'개 추가했어요.'+(dup?(' '+dup+'개는 이미 있어요.'):'');
+wIn.value='';
+rerender();
+};
+addBox.appendChild(wIn); addBox.appendChild(okBtn); addBox.appendChild(msg);
+card.appendChild(addBox);
+}
+
+/* ---- 목록 ---- */
+if(CW_LIST_OPEN){
+var listBox=el('<div style="margin-top:10px;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;"></div>');
+if(!ws.length) listBox.appendChild(el('<p class="muted" style="margin:10px 12px;">아직 저장된 단어가 없어요.</p>'));
+ws.slice().sort(function(a,b){ return (b.wrong||0)-(a.wrong||0); }).forEach(function(w){
+var row=el('<div class="row" style="justify-content:space-between;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);"></div>');
+var left=el('<div style="min-width:0;"></div>');
+var t=el('<span></span>');
+t.innerHTML='<strong>'+escapeHtml(w.stem)+'</strong>'+escapeHtml(cwEnding(w));
+left.appendChild(t);
+left.appendChild(el('<span class="muted" style="margin-left:8px;font-size:12px;">맞음 '+(w.right||0)+' · 틀림 '+(w.wrong||0)+'</span>'));
+row.appendChild(left);
+var del=el('<button class="btn small danger">삭제</button>');
+del.onclick=function(){
+markDeleted(w.id);
+DATA.cwWords=cwWords().filter(function(x){ return x.id!==w.id; });
+saveData(); CW_DRILL=null; rerender();
+};
+row.appendChild(del);
+listBox.appendChild(row);
+});
+card.appendChild(listBox);
+}
+
+/* ---- 연습 ---- */
+if(!ws.length){
+card.appendChild(el('<p class="muted" style="margin-top:12px;">Complete the Words 문제를 풀어서 틀린 단어를 모으거나, 위에서 직접 추가해보세요.</p>'));
+return card;
+}
+if(!CW_DRILL || !cwCurrent()) cwStartDrill();
+var cur=cwCurrent();
+if(!cur) return card;
+
+var ending=cwEnding(cur);
+var quiz=el('<div style="margin-top:14px;padding:16px;border-radius:10px;background:var(--accent-bg);text-align:center;"></div>');
+var line=el('<div style="display:inline-flex;align-items:baseline;justify-content:center;"></div>');
+var stemEl=el('<span class="cw-stem"></span>');
+stemEl.textContent=cur.stem;
+line.appendChild(stemEl);
+var inp=document.createElement('input');
+inp.type='text'; inp.className='cw-input';
+inp.maxLength=ending.length;
+inp.style.width=(ending.length*1.45)+'ch';
+inp.autocapitalize='off'; inp.autocomplete='off'; inp.spellcheck=false;
+line.appendChild(inp);
+quiz.appendChild(line);
+
+var fb=el('<p class="muted" style="margin:10px 0 0;min-height:18px;"></p>');
+quiz.appendChild(fb);
+
+var btnRow=el('<div class="row" style="margin-top:10px;justify-content:center;gap:8px;"></div>');
+var checkBtn=el('<button class="btn primary small">확인</button>');
+var nextBtn=el('<button class="btn small">다음</button>');
+btnRow.appendChild(checkBtn); btnRow.appendChild(nextBtn);
+quiz.appendChild(btnRow);
+quiz.appendChild(el('<p class="muted" style="margin:8px 0 0;font-size:12px;">'+(CW_DRILL.idx+1)+' / '+CW_DRILL.order.length+'</p>'));
+
+function goNext(){
+CW_DRILL.idx++;
+if(CW_DRILL.idx>=CW_DRILL.order.length) cwStartDrill();
+CW_DRILL.checked=false;
+rerender();
+}
+function doCheck(){
+if(CW_DRILL.checked) { goNext(); return; }
+var mine=inp.value.trim().toLowerCase();
+var ok = mine===ending.toLowerCase();
+CW_DRILL.checked=true;
+inp.classList.add(ok?'correct':'wrong');
+inp.disabled=true;
+if(ok){
+cur.right=(cur.right||0)+1;
+fb.textContent='맞았어요!';
+fb.style.color='var(--green)';
+} else {
+cur.wrong=(cur.wrong||0)+1;
+fb.textContent='정답: '+cur.word;
+fb.style.color='var(--red)';
+}
+saveData();
+checkBtn.textContent='다음 단어';
+}
+checkBtn.onclick=doCheck;
+nextBtn.onclick=goNext;
+inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); doCheck(); } });
+
+card.appendChild(quiz);
+setTimeout(function(){ try{ inp.focus(); }catch(e){} }, 0);
+return card;
 }
 
 /* ================= 모의고사 =================
