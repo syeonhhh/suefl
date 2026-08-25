@@ -4211,7 +4211,25 @@ labelChangeAction(task, renderWritingSpeaking),
 {label:'삭제', danger:true, onClick:function(){ markDeleted(task.id); DATA.speaking=DATA.speaking.filter(function(x){return x.id!==task.id;}); saveData(); renderWritingSpeaking(); }}
 ])));
 card.appendChild(head);
-card.appendChild(el('<p style="margin-top:8px;">'+escapeHtml(task.sentence)+'</p>'));
+/* 듣고 그대로 따라 말하는 문제예요. 문장이 보이면 읽기 연습이 돼버리니
+   한 번 말해본 뒤에야 확인할 수 있게 잠가둡니다. */
+var sentBox=el('<p style="display:none;margin-top:8px;"></p>');
+sentBox.textContent=task.sentence;
+var revealBtn=el('<button class="btn small" style="display:none;">문장 보기</button>');
+var lockNote=el('<span class="muted" style="font-size:12px;">문장은 한 번 말해본 뒤에 볼 수 있어요</span>');
+revealBtn.onclick=function(){
+var show=sentBox.style.display==='none';
+sentBox.style.display=show?'block':'none';
+revealBtn.textContent=show?'문장 숨기기':'문장 보기';
+};
+function unlockSentence(){
+revealBtn.style.display='';
+if(lockNote.parentNode) lockNote.parentNode.removeChild(lockNote);
+}
+var revealRow=el('<div class="row" style="margin-top:8px;align-items:center;gap:8px;"></div>');
+revealRow.appendChild(revealBtn); revealRow.appendChild(lockNote);
+card.appendChild(revealRow);
+card.appendChild(sentBox);
 card.appendChild(lrActionsRow);
 var playBtn=el('<button class="btn">▶ 재생</button>');
 playBtn.onclick=function(){ speak(task.sentence, ttsVoices().narrator); };
@@ -4221,7 +4239,7 @@ var interval=null;
 repeatBtn.onclick=function(){
 if(interval) clearInterval(interval);
 var sec=10; timerDisplay.textContent=sec+'초';
-interval=setInterval(function(){ sec--; timerDisplay.textContent=sec+'초'; if(sec<=0){ clearInterval(interval); timerDisplay.textContent='완료!'; PROGRESS.speakingLogs.push({type:'listenRepeat', date:new Date().toISOString().slice(0,10)}); recordPractice(); } },1000);
+interval=setInterval(function(){ sec--; timerDisplay.textContent=sec+'초'; if(sec<=0){ clearInterval(interval); timerDisplay.textContent='완료!'; unlockSentence(); PROGRESS.speakingLogs.push({type:'listenRepeat', date:new Date().toISOString().slice(0,10)}); recordPractice(); } },1000);
 };
 var row=el('<div class="row" style="margin-top:8px;"></div>');
 row.appendChild(playBtn); row.appendChild(timerDisplay); row.appendChild(repeatBtn);
