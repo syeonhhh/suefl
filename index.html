@@ -601,6 +601,27 @@ window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
 }
 
 /* 문제별 메모장 — 리딩/리스닝과 같은 NOTES 저장소를 씀 */
+function noteHiddenKey(id){ return 'hide:'+id; }
+function isNoteHidden(id){ return !!NOTES[noteHiddenKey(id)]; }
+function setNoteHidden(id, v){
+if(v) NOTES[noteHiddenKey(id)]=true;
+else delete NOTES[noteHiddenKey(id)];
+saveNotes();
+}
+
+/* 메모장마다 붙는 「메모 모음에 표시하지 않기」 체크박스 */
+function noteHideToggle(itemId){
+var lbl=el('<label class="row" style="gap:6px;align-items:center;margin-top:6px;margin-bottom:10px;font-size:12.5px;color:var(--text-2);cursor:pointer;width:fit-content;"></label>');
+var cb=document.createElement('input');
+cb.type='checkbox';
+cb.checked=isNoteHidden(itemId);
+cb.style.cursor='pointer';
+cb.onchange=function(){ setNoteHidden(itemId, cb.checked); };
+lbl.appendChild(cb);
+lbl.appendChild(document.createTextNode('메모 모음에 표시하지 않기'));
+return lbl;
+}
+
 function buildNotepad(itemId, placeholder, opts){
 opts=opts||{};
 var wrap=el('<div style="margin-top:'+(opts.tight?'8':'12')+'px;"></div>');
@@ -610,8 +631,14 @@ var ta=el('<textarea placeholder="'+placeholder+'" style="min-height:'+(opts.tig
 ta.style.display=open?'block':'none';
 ta.value=NOTES[itemId]||'';
 ta.oninput=function(){ NOTES[itemId]=ta.value; saveNotes(); };
-btn.onclick=function(){ ta.style.display=ta.style.display==='none'?'block':'none'; };
-wrap.appendChild(btn); wrap.appendChild(ta);
+var hideRow=noteHideToggle(itemId);
+hideRow.style.display=open?'flex':'none';
+btn.onclick=function(){
+var show=ta.style.display==='none';
+ta.style.display=show?'block':'none';
+hideRow.style.display=show?'flex':'none';
+};
+wrap.appendChild(btn); wrap.appendChild(ta); wrap.appendChild(hideRow);
 return wrap;
 }
 
@@ -1849,9 +1876,15 @@ var sections=[
 {kind:'listening', label:'리스닝', items:allListening(), infoFn:listeningTaskInfo},
 {kind:'speaking', label:'스피킹', items:allSpeaking(), infoFn:speakingTaskInfo}
 ];
+var hiddenCount=0;
+sections.forEach(function(sec){
+sec.items.forEach(function(item){
+if(NOTES[item.id] && NOTES[item.id].trim() && isNoteHidden(item.id)) hiddenCount++;
+});
+});
 var anyNotes=false;
 sections.forEach(function(sec){
-var withNotes=sec.items.filter(function(item){ return NOTES[item.id] && NOTES[item.id].trim(); });
+var withNotes=sec.items.filter(function(item){ return NOTES[item.id] && NOTES[item.id].trim() && !isNoteHidden(item.id); });
 if(withNotes.length===0) return;
 anyNotes=true;
 panel.appendChild(el('<h3 style="margin:20px 0 8px;">'+sec.label+'</h3>'));
@@ -1885,7 +1918,11 @@ panel.appendChild(card);
 });
 });
 if(!anyNotes){
-panel.appendChild(el('<div class="card"><p class="muted">아직 작성된 메모장 내용이 없어요. 리딩/리스닝의 "필기" 또는 "문제풀기" 화면에서 메모장에 내용을 적어보세요.</p></div>'));
+panel.appendChild(el('<div class="card"><p class="muted">'+(hiddenCount?('작성된 메모는 있지만 모두 「메모 모음에 표시하지 않기」로 설정돼 있어요.'):'아직 작성된 메모장 내용이 없어요. 리딩/리스닝의 "필기" 또는 "문제풀기" 화면에서 메모장에 내용을 적어보세요.')+'</p></div>'));
+}
+/* 숨긴 게 있으면 알려줘요 — 안 그러면 왜 안 보이는지 헷갈려요 */
+if(hiddenCount){
+panel.appendChild(el('<p class="muted" style="margin-top:14px;font-size:12.5px;">'+hiddenCount+'개의 메모가 숨겨져 있어요. 각 문제의 메모장에서 「메모 모음에 표시하지 않기」를 끄면 다시 보여요.</p>'));
 }
 }
 var panelsEl=document.getElementById('panels');
@@ -2425,8 +2462,14 @@ var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모
 var notepad=el('<textarea placeholder="읽으면서 자유롭게 메모하세요..." style="min-height:120px;display:none;margin-top:8px;"></textarea>');
 notepad.value=NOTES[item.id]||'';
 notepad.oninput=function(){ NOTES[item.id]=notepad.value; saveNotes(); };
-notesToggleBtn.onclick=function(){ notepad.style.display=notepad.style.display==='none'?'block':'none'; };
-panel.appendChild(notesToggleBtn); panel.appendChild(notepad);
+var noteHideRow=noteHideToggle(item.id);
+noteHideRow.style.display='none';
+notesToggleBtn.onclick=function(){
+var show=notepad.style.display==='none';
+notepad.style.display=show?'block':'none';
+noteHideRow.style.display=show?'flex':'none';
+};
+panel.appendChild(notesToggleBtn); panel.appendChild(notepad); panel.appendChild(noteHideRow);
 
 var bottomContainer=el('<div></div>');
 panel.appendChild(bottomContainer);
@@ -2488,8 +2531,14 @@ var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모
 var notepad=el('<textarea placeholder="자유롭게 메모하세요..." style="min-height:100px;display:none;margin-top:8px;"></textarea>');
 notepad.value=NOTES[item.id]||'';
 notepad.oninput=function(){ NOTES[item.id]=notepad.value; saveNotes(); };
-notesToggleBtn.onclick=function(){ notepad.style.display=notepad.style.display==='none'?'block':'none'; };
-panel.appendChild(notesToggleBtn); panel.appendChild(notepad);
+var noteHideRow=noteHideToggle(item.id);
+noteHideRow.style.display='none';
+notesToggleBtn.onclick=function(){
+var show=notepad.style.display==='none';
+notepad.style.display=show?'block':'none';
+noteHideRow.style.display=show?'flex':'none';
+};
+panel.appendChild(notesToggleBtn); panel.appendChild(notepad); panel.appendChild(noteHideRow);
 }
 
 /* ================= LISTENING ================= */
@@ -2850,8 +2899,14 @@ var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모
 var notepad=el('<textarea placeholder="들으면서 자유롭게 메모하세요..." style="min-height:120px;display:none;margin-top:8px;"></textarea>');
 notepad.value=NOTES[item.id]||'';
 notepad.oninput=function(){ NOTES[item.id]=notepad.value; saveNotes(); };
-notesToggleBtn.onclick=function(){ notepad.style.display=notepad.style.display==='none'?'block':'none'; };
-panel.appendChild(notesToggleBtn); panel.appendChild(notepad);
+var noteHideRow=noteHideToggle(item.id);
+noteHideRow.style.display='none';
+notesToggleBtn.onclick=function(){
+var show=notepad.style.display==='none';
+notepad.style.display=show?'block':'none';
+noteHideRow.style.display=show?'flex':'none';
+};
+panel.appendChild(notesToggleBtn); panel.appendChild(notepad); panel.appendChild(noteHideRow);
 
 var bottomContainer=el('<div></div>');
 panel.appendChild(bottomContainer);
@@ -3411,8 +3466,14 @@ var notesToggleBtn2=el('<button class="btn small" style="margin-bottom:10px;">�
 var freeNotepad=el('<textarea placeholder="자유 메모장 — 읽으면서 정리한 내용을 적어두세요..." style="display:none;min-height:110px;margin-bottom:14px;"></textarea>');
 freeNotepad.value=NOTES[item.id]||'';
 freeNotepad.oninput=function(){ NOTES[item.id]=freeNotepad.value; saveNotes(); };
-notesToggleBtn2.onclick=function(){ freeNotepad.style.display=freeNotepad.style.display==='none'?'block':'none'; };
-card.appendChild(notesToggleBtn2); card.appendChild(freeNotepad);
+var freeHideRow=noteHideToggle(item.id);
+freeHideRow.style.display='none';
+notesToggleBtn2.onclick=function(){
+var show=freeNotepad.style.display==='none';
+freeNotepad.style.display=show?'block':'none';
+freeHideRow.style.display=show?'flex':'none';
+};
+card.appendChild(notesToggleBtn2); card.appendChild(freeNotepad); card.appendChild(freeHideRow);
 
 /* 지문(왼쪽)과 문제(오른쪽)를 나란히 — 지문을 보면서 문제를 분석할 수 있게 */
 var splitWrap=el('<div class="analysis-split"></div>');
@@ -4603,10 +4664,10 @@ var chipRow=el('<div class="row" style="margin-top:8px;justify-content:center;ga
 quiz.appendChild(chipRow);
 
 var btnRow=el('<div class="row" style="margin-top:10px;justify-content:center;gap:8px;"></div>');
-var checkBtn=el('<button class="btn primary small">확인</button>');
 var hintBtn=el('<button class="btn small">보기 보여줘</button>');
-var nextBtn=el('<button class="btn small">다음</button>');
-btnRow.appendChild(checkBtn); btnRow.appendChild(hintBtn); btnRow.appendChild(nextBtn);
+/* 확인과 다음을 한 버튼으로. 채점하면 글씨가 '다음'으로 바뀌어요 */
+var checkBtn=el('<button class="btn primary small">확인</button>');
+btnRow.appendChild(hintBtn); btnRow.appendChild(checkBtn);
 quiz.appendChild(btnRow);
 quiz.appendChild(el('<p class="muted" style="margin:8px 0 0;font-size:12px;">'+(PREP_DRILL.idx+1)+' / '+PREP_DRILL.order.length+'</p>'));
 
@@ -4641,11 +4702,13 @@ extra.textContent = (cur.preps.length>1 ? (cur.word+' + '+cur.preps.join(' / ')+
 chipRow.appendChild(extra);
 }
 saveData();
-checkBtn.textContent='다음 문제';
+checkBtn.textContent='다음';
 hintBtn.disabled=true;
+/* 입력칸이 잠기면 엔터를 못 받으니 버튼으로 초점을 옮겨요.
+   그래야 엔터 한 번 더로 다음 문제로 넘어갑니다. */
+setTimeout(function(){ try{ checkBtn.focus(); }catch(e){} }, 0);
 }
 checkBtn.onclick=doCheck;
-nextBtn.onclick=goNext;
 hintBtn.onclick=function(){
 if(PREP_DRILL.checked) return;
 PREP_DRILL.hinted=true;
