@@ -37,7 +37,7 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 
 ## 사이트 구조
 
-상단 탭: 단어 / 리딩 / 리스닝 / 라이팅 / 스피킹 / 메모 모음 / 진도
+상단 탭: 단어 / 리딩 / 리스닝 / 라이팅 / 스피킹 / 모의고사 / 메모 모음 / 진도
 
 각 영역 안에:
 - 맨 위 `buildAddPanel(kind, label, formBuilder)` — 문제 추가 (직접작성 / 사진 / JSON 탭)
@@ -59,6 +59,19 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `markDeleted` / `dropDeleted` | 삭제 툼스톤 |
 | `importData` / `runImportText` | JSON 가져오기 |
 | `runExport` | JSON 내보내기 |
+| `renderMock` | 모의고사. 설정 → 진행 → 결과를 `MOCK` 전역 상태로 전환 |
+| `buildMockUnits` | 뽑은 문제를 푸는 단위로 펼침 (리딩·리스닝은 문항 단위) |
+
+### 모의고사
+
+`MOCK_PLANS`에 영역별 기본 문항 수와 제한 시간이 있음.
+⚠ **이 기본값은 TOEFL Essentials를 참고해 잡은 추정치**라 공식 시험과 다를 수 있음.
+사용자가 설정 화면에서 고칠 수 있고 `toeflMockCfg`에 저장됨.
+공식 문항 수를 확인하면 `MOCK_PLANS`를 고칠 것.
+
+- 출제 범위는 지금 켜둔 라벨(`LABEL_FILTER`)을 그대로 따름
+- 리딩·리스닝은 자동 채점, 라이팅·스피킹은 작성/녹음만 남김
+- 시간이 끝나면 자동 제출
 
 ### 데이터 (localStorage)
 
@@ -69,6 +82,8 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `toeflNotes` | 자유 메모장 |
 | `toeflAnnotations` | 필기(형광펜·메모) HTML |
 | `toeflDeleted` | 삭제 툼스톤 `{id: ISO날짜}`, 180일 후 정리 |
+| `toeflMockCfg` | 모의고사 구성(문항 수·시간)과 마지막에 고른 영역 |
+| `toeflLabelFilter` | 체크한 라벨 목록 (null이면 전체) |
 | `toeflApiKey` | Anthropic API 키 |
 | `toeflSbSession` | Supabase 세션 |
 | `toeflLastSync` | 마지막 동기화 시각 |

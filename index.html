@@ -345,6 +345,12 @@ color-scheme:dark;
 *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
 }
 
+/* 모의고사 상단 바 */
+.mock-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;
+background:var(--card);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-1);
+position:sticky;top:8px;z-index:20;}
+.mock-clock{font-variant-numeric:tabular-nums;font-size:19px;font-weight:700;letter-spacing:.02em;}
+
 /* 단축키 줄 */
 .shortcut-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px 16px;margin:0 0 12px;font-size:12px;color:var(--text-2);}
 .shortcut-bar span{display:inline-flex;align-items:center;gap:5px;}
@@ -1769,6 +1775,7 @@ var TABS=[
 {id:'listening',label:'리스닝'},
 {id:'writing',label:'라이팅'},
 {id:'speaking',label:'스피킹'},
+{id:'mock',label:'모의고사'},
 {id:'notes',label:'메모 모음'},
 {id:'progress',label:'진도'}
 ];
@@ -1787,6 +1794,7 @@ document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.toggle('a
 document.querySelectorAll('.panel').forEach(function(p){ p.classList.toggle('active', p.id==='panel-'+id); });
 if(id==='progress') renderProgress();
 if(id==='notes') renderNotesTab();
+if(id==='mock') renderMock();
 }
 function goToItem(item, kind, mode){
 switchTab(kind);
@@ -4320,6 +4328,405 @@ __real.appendChild(buildAddPanel('speaking','스피킹 문제', buildSpeakingFor
 __real.appendChild(taskSubtabs('speaking', SPEAKING_TASK_TYPES, renderWritingSpeaking));
 __real.appendChild(buildLabelFilterBar(renderWritingSpeaking, 'speaking'));
 __real.appendChild(__sec[curTask('speaking', SPEAKING_TASK_TYPES)]);
+}
+
+/* ================= 모의고사 =================
+   저장해둔 문제 중 지금 켜둔 라벨에 해당하는 것을 무작위로 뽑아
+   실제 시험과 같은 구성·시간으로 한 세트를 만들어 풀어요.
+
+   ⚠ 아래 기본 문항 수와 시간은 TOEFL Essentials 기준으로 잡아둔 값이라
+   공식 시험과 다를 수 있어요. 설정 화면에서 직접 고칠 수 있고,
+   고친 값은 저장됩니다. */
+var MOCK_PLANS={
+reading:  {label:'리딩',   minutes:22, types:READING_TASK_TYPES,   counts:{completeWords:2, dailyLife:3, academic:2}},
+listening:{label:'리스닝', minutes:17, types:LISTENING_TASK_TYPES, counts:{chooseResponse:6, conversation:2, announcement:1, academicTalk:2}},
+writing:  {label:'라이팅', minutes:27, types:WRITING_TASK_TYPES,   counts:{buildSentence:5, email:1, discussion:1}},
+speaking: {label:'스피킹', minutes:17, types:SPEAKING_TASK_TYPES,  counts:{listenRepeat:6, interview:1}}
+};
+var MOCK_SECTIONS=['reading','listening','writing','speaking'];
+
+function loadMockCfg(){ try{ return JSON.parse(localStorage.getItem('toeflMockCfg'))||{}; }catch(e){ return {}; } }
+function saveMockCfg(){ try{ localStorage.setItem('toeflMockCfg', JSON.stringify(MOCK_CFG)); }catch(e){} }
+var MOCK_CFG = loadMockCfg();
+
+function mockCfgFor(sec){
+var base=MOCK_PLANS[sec], saved=MOCK_CFG[sec]||{};
+var counts={};
+base.types.forEach(function(t){
+var v=(saved.counts && saved.counts[t.id]!=null) ? saved.counts[t.id] : base.counts[t.id];
+counts[t.id]= v==null?0:v;
+});
+return {minutes:(saved.minutes!=null?saved.minutes:base.minutes), counts:counts};
+}
+
+/* 지금 켜둔 라벨 조건을 그대로 따라요 */
+function mockPool(sec, taskId){
+if(sec==='reading')   return visibleItems(allReading().filter(function(x){return x.taskType===taskId;}));
+if(sec==='listening') return visibleItems(allListening().filter(function(x){return x.taskType===taskId;}));
+if(sec==='speaking')  return visibleItems(allSpeaking().filter(function(x){return x.taskType===taskId;}));
+return visibleItems(allWriting(taskId));
+}
+function shuffled(arr){
+var a=(arr||[]).slice();
+for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; }
+return a;
+}
+
+/* 뽑은 문제를 실제로 푸는 단위로 펼쳐요.
+   리딩·리스닝은 지문 하나에 문항이 여러 개라 문항 단위로 나눕니다. */
+function buildMockUnits(sec, cfg){
+var units=[];
+MOCK_PLANS[sec].types.forEach(function(t){
+var want=cfg.counts[t.id]||0;
+if(want<=0) return;
+shuffled(mockPool(sec,t.id)).slice(0,want).forEach(function(item){
+if(sec==='reading' && t.id==='completeWords'){ units.push({kind:'blanks', taskId:t.id, item:item}); return; }
+if(sec==='reading' || sec==='listening'){
+(item.questions||[]).forEach(function(q,qi){ units.push({kind:'mcq', taskId:t.id, item:item, q:q, qi:qi}); });
+return;
+}
+if(sec==='writing'){ units.push({kind:'writing', taskId:t.id, item:item}); return; }
+units.push({kind:'speaking', taskId:t.id, item:item});
+});
+});
+return units;
+}
+
+var MOCK=null;   /* {sec,cfg,units,idx,secLeft,timer,answers,finished,startedAt} */
+
+function mockStop(){
+if(MOCK && MOCK.timer){ clearInterval(MOCK.timer); MOCK.timer=null; }
+try{ if(window.speechSynthesis) speechSynthesis.cancel(); }catch(e){}
+}
+
+function renderMock(){
+var panel=document.getElementById('panel-mock');
+if(!panel) return;
+panel.innerHTML='';
+if(!MOCK) { renderMockSetup(panel); return; }
+if(MOCK.finished) { renderMockResult(panel); return; }
+renderMockRun(panel);
+}
+
+/* ---------- 설정 ---------- */
+function renderMockSetup(panel){
+panel.appendChild(el('<div class="task-head">모의고사</div>'));
+panel.appendChild(el('<p class="task-hint">저장해둔 문제 중에서 무작위로 뽑아 한 세트를 만들어요. 지금 켜둔 라벨에 해당하는 문제만 사용합니다.</p>'));
+
+var secRow=el('<div class="row" style="gap:6px;margin-bottom:14px;flex-wrap:wrap;"></div>');
+var chosen=MOCK_CFG.__last || 'reading';
+var body=el('<div></div>');
+MOCK_SECTIONS.forEach(function(sec){
+var b=el('<button class="btn small"></button>');
+b.textContent=MOCK_PLANS[sec].label;
+if(sec===chosen) b.classList.add('primary');
+b.onclick=function(){ MOCK_CFG.__last=sec; saveMockCfg(); renderMock(); };
+secRow.appendChild(b);
+});
+panel.appendChild(secRow);
+panel.appendChild(body);
+
+var sec=chosen, plan=MOCK_PLANS[sec], cfg=mockCfgFor(sec);
+var card=el('<div class="card"></div>');
+card.appendChild(el('<h3 style="margin:0 0 4px;">'+plan.label+' 모의고사 구성</h3>'));
+card.appendChild(el('<p class="muted" style="margin:0 0 12px;">기본값은 실제 시험을 참고해 잡아둔 값이에요. 숫자를 고치면 저장돼요.</p>'));
+
+var labelBar=buildLabelFilterBar(renderMock, sec);
+labelBar.style.marginBottom='12px';
+card.appendChild(labelBar);
+
+var tbl=el('<div></div>');
+var inputs={};
+var shortage=[];
+plan.types.forEach(function(t){
+var pool=mockPool(sec,t.id);
+var have=pool.length;
+var row=el('<div class="row" style="gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap;"></div>');
+var nIn=el('<input type="number" min="0" max="30" style="width:66px;">');
+nIn.value=cfg.counts[t.id];
+nIn.onchange=function(){
+var v=parseInt(nIn.value,10); if(isNaN(v)||v<0) v=0; if(v>30) v=30;
+nIn.value=v;
+MOCK_CFG[sec]=MOCK_CFG[sec]||{}; MOCK_CFG[sec].counts=MOCK_CFG[sec].counts||{};
+MOCK_CFG[sec].counts[t.id]=v; saveMockCfg(); renderMock();
+};
+inputs[t.id]=nIn;
+row.appendChild(nIn);
+row.appendChild(el('<span style="min-width:210px;">Task '+t.num+'. '+escapeHtml(t.label)+'</span>'));
+var want=cfg.counts[t.id]||0;
+var okTxt = have>=want ? ('보유 '+have+'개') : ('보유 '+have+'개 — '+(want-have)+'개 부족');
+var badge=el('<span class="muted" style="font-size:12px;"></span>');
+badge.textContent=okTxt;
+if(have<want){ badge.style.color='var(--red)'; shortage.push(t.label); }
+row.appendChild(badge);
+tbl.appendChild(row);
+});
+card.appendChild(tbl);
+
+var timeRow=el('<div class="row" style="gap:10px;align-items:center;margin-top:12px;"></div>');
+var minIn=el('<input type="number" min="1" max="180" style="width:66px;">');
+minIn.value=cfg.minutes;
+minIn.onchange=function(){
+var v=parseInt(minIn.value,10); if(isNaN(v)||v<1) v=1; if(v>180) v=180;
+minIn.value=v;
+MOCK_CFG[sec]=MOCK_CFG[sec]||{}; MOCK_CFG[sec].minutes=v; saveMockCfg();
+};
+timeRow.appendChild(minIn);
+timeRow.appendChild(el('<span>분 (제한 시간)</span>'));
+var resetBtn=el('<button class="btn small" style="margin-left:auto;">기본값으로</button>');
+resetBtn.onclick=function(){ delete MOCK_CFG[sec]; saveMockCfg(); renderMock(); };
+timeRow.appendChild(resetBtn);
+card.appendChild(timeRow);
+
+/* 실제로 몇 문항이 만들어지는지 미리 세어봐요 */
+var preview=buildMockUnits(sec, cfg);
+var note=el('<p class="muted" style="margin:12px 0 0;"></p>');
+if(preview.length===0){
+note.textContent='만들 수 있는 문항이 없어요. 위에서 문항 수를 올리거나, 라벨을 켜거나, 문제를 먼저 추가해주세요.';
+note.style.color='var(--red)';
+} else if(shortage.length){
+note.textContent='총 '+preview.length+'문항이 만들어져요. 다만 '+shortage.join(', ')+' 문제가 모자라서 그만큼 적게 나와요.';
+note.style.color='var(--amber)';
+} else {
+note.textContent='총 '+preview.length+'문항이 만들어져요.';
+}
+card.appendChild(note);
+
+var startBtn=el('<button class="btn primary" style="margin-top:12px;">모의고사 시작</button>');
+startBtn.disabled = preview.length===0;
+startBtn.onclick=function(){
+var units=buildMockUnits(sec, mockCfgFor(sec));
+if(!units.length) return;
+MOCK={sec:sec, cfg:mockCfgFor(sec), units:units, idx:0, answers:{}, finished:false,
+      secLeft:mockCfgFor(sec).minutes*60, startedAt:Date.now(), timer:null};
+MOCK.timer=setInterval(function(){
+if(!MOCK || MOCK.finished){ return; }
+MOCK.secLeft--;
+var d=document.getElementById('mock-clock');
+if(d){ d.textContent=fmtTime(MOCK.secLeft); if(MOCK.secLeft<=60) d.style.color='var(--red)'; }
+if(MOCK.secLeft<=0){ mockFinish(true); }
+},1000);
+renderMock();
+};
+card.appendChild(startBtn);
+panel.appendChild(card);
+}
+
+/* ---------- 진행 ---------- */
+function mockFinish(byTimeout){
+if(!MOCK) return;
+mockStop();
+MOCK.finished=true;
+MOCK.byTimeout=!!byTimeout;
+MOCK.elapsed=Math.round((Date.now()-MOCK.startedAt)/1000);
+recordPractice();
+renderMock();
+}
+
+function renderMockRun(panel){
+var plan=MOCK_PLANS[MOCK.sec];
+var bar=el('<div class="mock-bar"></div>');
+bar.appendChild(el('<strong>'+plan.label+' 모의고사</strong>'));
+var clock=el('<span class="mock-clock" id="mock-clock"></span>');
+clock.textContent=fmtTime(MOCK.secLeft);
+if(MOCK.secLeft<=60) clock.style.color='var(--red)';
+bar.appendChild(clock);
+bar.appendChild(el('<span class="muted" style="font-size:12.5px;">'+(MOCK.idx+1)+' / '+MOCK.units.length+'</span>'));
+var quitBtn=el('<button class="btn small danger" style="margin-left:auto;">그만두기</button>');
+var quitArmed=false;
+quitBtn.onclick=function(){
+if(!quitArmed){ quitArmed=true; quitBtn.textContent='정말 그만두려면 한 번 더'; setTimeout(function(){ quitArmed=false; quitBtn.textContent='그만두기'; },5000); return; }
+mockStop(); MOCK=null; renderMock();
+};
+bar.appendChild(quitBtn);
+panel.appendChild(bar);
+
+var holder=el('<div></div>');
+panel.appendChild(holder);
+renderMockUnit(holder);
+
+var nav=el('<div class="row" style="margin-top:14px;gap:8px;"></div>');
+var backBtn=el('<button class="btn small">◀ 이전</button>');
+backBtn.disabled=MOCK.idx===0;
+backBtn.onclick=function(){ if(MOCK.idx>0){ MOCK.idx--; try{ if(window.speechSynthesis) speechSynthesis.cancel(); }catch(e){} renderMock(); } };
+var nextBtn=el('<button class="btn primary small">다음 ▶</button>');
+if(MOCK.idx>=MOCK.units.length-1){ nextBtn.textContent='제출하고 끝내기'; nextBtn.onclick=function(){ mockFinish(false); }; }
+else nextBtn.onclick=function(){ MOCK.idx++; try{ if(window.speechSynthesis) speechSynthesis.cancel(); }catch(e){} renderMock(); };
+nav.appendChild(backBtn); nav.appendChild(nextBtn);
+panel.appendChild(nav);
+}
+
+function mockUnitTitle(u){
+var t=null;
+MOCK_PLANS[MOCK.sec].types.forEach(function(x){ if(x.id===u.taskId) t=x; });
+return t ? ('Task '+t.num+'. '+t.label) : '';
+}
+
+function renderMockUnit(holder){
+var u=MOCK.units[MOCK.idx], key=String(MOCK.idx);
+var card=el('<div class="card"></div>');
+card.appendChild(el('<p class="muted" style="margin:0 0 10px;font-size:12.5px;">'+escapeHtml(mockUnitTitle(u))+'</p>'));
+
+if(u.kind==='mcq'){
+var split=el('<div class="analysis-split"></div>');
+var L=el('<div class="analysis-left"></div>'), R=el('<div class="analysis-right"></div>');
+split.appendChild(L); split.appendChild(R);
+if(MOCK.sec==='reading'){
+if(u.item.image){ var im=el('<img style="max-width:100%;border-radius:6px;margin-bottom:10px;display:block;">'); im.src=u.item.image; L.appendChild(im); }
+var pv=el('<div class="passage" style="max-height:calc(100vh - 260px);overflow-y:auto;"></div>');
+pv.textContent=u.item.passage||'';
+L.appendChild(pv);
+} else {
+var sc=u.q.script || u.item.script || '';
+L.appendChild(buildScriptPlayer(function(){ return sc; }, null).wrapper);
+L.appendChild(el('<p class="muted">실제 시험처럼 대본은 보이지 않아요. 재생을 눌러 들어보세요.</p>'));
+}
+if(!L.childNodes.length) split.classList.add('single');
+
+var numLab=questionNumLabel(u.q, u.qi);
+R.appendChild(el('<div class="toefl-qnum">'+(numLab?('Q'+numLab+'. '):'')+escapeHtml(u.q.q||'')+'</div>'));
+if(u.q.image){ var qi2=el('<img style="max-width:100%;border-radius:6px;margin:8px 0;display:block;">'); qi2.src=u.q.image; R.appendChild(qi2); }
+(u.q.opts||[]).forEach(function(op, oi){
+var row=el('<label class="optrow" style="cursor:pointer;"></label>');
+var rd=document.createElement('input'); rd.type='radio'; rd.name='mock-'+key;
+if(MOCK.answers[key]===oi) rd.checked=true;
+rd.onchange=function(){ MOCK.answers[key]=oi; };
+row.appendChild(rd);
+row.appendChild(el('<span>'+escapeHtml(op)+'</span>'));
+R.appendChild(row);
+});
+card.appendChild(split);
+
+} else if(u.kind==='blanks'){
+var parsed=parseBlanks(u.item.passage||'');
+var pane=el('<div class="toefl-pane-single"></div>');
+var refs=renderBlankText(pane, parsed.display, parsed.blanks);
+card.appendChild(pane);
+var saved=MOCK.answers[key]||{};
+refs.forEach(function(r){
+if(saved[r.num]!=null) r.input.value=saved[r.num];
+r.input.oninput=function(){
+MOCK.answers[key]=MOCK.answers[key]||{};
+MOCK.answers[key][r.num]=r.input.value;
+};
+});
+MOCK.units[MOCK.idx].refs=refs;
+
+} else if(u.kind==='writing'){
+if(u.taskId==='buildSentence'){
+card.appendChild(el('<p style="margin:0 0 8px;">아래 단어를 올바른 순서로 배열해 문장을 만드세요.</p>'));
+var wordBox=el('<p style="font-weight:600;margin:0 0 10px;"></p>');
+wordBox.textContent=shuffled(u.item.words||[]).join(' / ');
+card.appendChild(wordBox);
+} else if(u.taskId==='email'){
+card.appendChild(el('<p style="margin:0 0 10px;white-space:pre-line;">'+escapeHtml(u.item.prompt||'')+'</p>'));
+} else {
+card.appendChild(el('<p style="margin:0 0 8px;white-space:pre-line;"><strong>교수</strong> — '+escapeHtml(u.item.professorPrompt||'')+'</p>'));
+(u.item.refs||[]).forEach(function(rf){
+card.appendChild(el('<p class="muted" style="margin:0 0 6px;white-space:pre-line;"><strong>'+escapeHtml(rf.label||'급우')+'</strong> — '+escapeHtml(rf.text||'')+'</p>'));
+});
+}
+var ta=el('<textarea placeholder="여기에 작성하세요..." style="min-height:180px;margin-top:8px;"></textarea>');
+ta.value=MOCK.answers[key]||'';
+ta.oninput=function(){ MOCK.answers[key]=ta.value; };
+card.appendChild(ta);
+var wc=el('<p class="muted" style="margin:6px 0 0;font-size:12px;"></p>');
+function upd(){ wc.textContent=(ta.value.trim()?ta.value.trim().split(/\s+/).length:0)+' 단어'; }
+ta.addEventListener('input', upd); upd();
+card.appendChild(wc);
+
+} else {
+if(u.taskId==='listenRepeat'){
+card.appendChild(el('<p style="margin:0 0 8px;">문장을 듣고 그대로 따라 말하세요.</p>'));
+var pb=el('<button class="btn">▶ 재생</button>');
+pb.onclick=function(){ speak(u.item.sentence, ttsVoices().narrator); };
+card.appendChild(pb);
+} else {
+if(u.item.image){ var si=el('<img style="max-width:100%;border-radius:8px;margin-bottom:10px;display:block;">'); si.src=u.item.image; card.appendChild(si); }
+card.appendChild(el('<p style="margin:0 0 10px;white-space:pre-line;">'+escapeHtml(u.item.prompt||'')+'</p>'));
+card.appendChild(el('<p class="muted" style="margin:0 0 8px;">준비 '+fmtTime(u.item.prep||15)+' · 답변 '+fmtTime(u.item.resp||45)+'</p>'));
+}
+card.appendChild(buildRecorderControl());
+}
+
+holder.appendChild(card);
+}
+
+/* ---------- 결과 ---------- */
+function renderMockResult(panel){
+var plan=MOCK_PLANS[MOCK.sec];
+panel.appendChild(el('<div class="task-head">'+plan.label+' 모의고사 결과</div>'));
+if(MOCK.byTimeout) panel.appendChild(el('<p class="task-hint" style="color:var(--amber);">시간이 다 돼서 자동으로 제출됐어요.</p>'));
+
+var graded=0, correct=0, ungraded=0;
+var rows=[];
+MOCK.units.forEach(function(u, i){
+var key=String(i);
+if(u.kind==='mcq'){
+graded++;
+var pick=MOCK.answers[key];
+var ok=(pick===u.q.answer);
+if(ok) correct++;
+rows.push({no:i+1, task:mockUnitTitle(u), text:(u.q.q||''), ok:ok,
+           mine:(pick!=null?(u.q.opts||[])[pick]:'(무응답)'), ans:(u.q.opts||[])[u.q.answer]});
+} else if(u.kind==='blanks'){
+var parsed=parseBlanks(u.item.passage||'');
+var saved=MOCK.answers[key]||{};
+parsed.blanks.forEach(function(b){
+graded++;
+var mine=String(saved[b.num]||'').trim();
+var ok=mine.toLowerCase()===String(b.answer).trim().toLowerCase();
+if(ok) correct++;
+rows.push({no:i+1, task:mockUnitTitle(u), text:'빈칸 '+b.num, ok:ok,
+           mine:(mine||'(무응답)'), ans:b.answer});
+});
+} else {
+ungraded++;
+rows.push({no:i+1, task:mockUnitTitle(u), text:(u.item.title||''), ok:null,
+           mine:(u.kind==='writing'?String(MOCK.answers[key]||''):'(녹음)'), ans:null});
+}
+});
+
+var sum=el('<div class="card"></div>');
+/* 라이팅·스피킹은 자동 채점할 게 없어서 '0/0 정답'이 뜨면 이상해요 */
+if(graded){
+var pct=Math.round(correct/graded*100);
+sum.appendChild(el('<h3 style="margin:0 0 6px;">'+correct+' / '+graded+' 정답 ('+pct+'%)</h3>'));
+} else {
+sum.appendChild(el('<h3 style="margin:0 0 6px;">'+ungraded+'문항 작성 완료</h3>'));
+sum.appendChild(el('<p class="muted" style="margin:0 0 6px;">'+(MOCK.sec==='writing'?'이 영역은 자동 채점이 없어요. 아래에서 쓴 글을 확인하고, 연습 화면에서 AI 첨삭을 받아보세요.':'이 영역은 자동 채점이 없어요. 녹음을 다시 들어보며 스스로 점검해보세요.')+'</p>'));
+}
+sum.appendChild(el('<p class="muted" style="margin:0;">소요 시간 '+fmtTime(MOCK.elapsed||0)+(graded?(' · 채점 대상 '+graded+'문항'):'')+(ungraded?(' · 직접 확인 '+ungraded+'문항'):'')+'</p>'));
+panel.appendChild(sum);
+
+rows.forEach(function(r){
+var c=el('<div class="card" style="padding:12px 14px;"></div>');
+var head=el('<div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;"></div>');
+var lft=el('<div style="min-width:0;"></div>');
+lft.appendChild(el('<p class="muted" style="margin:0 0 2px;font-size:12px;">'+r.no+'. '+escapeHtml(r.task)+'</p>'));
+var tx=el('<div style="font-weight:550;"></div>'); tx.textContent=r.text; lft.appendChild(tx);
+head.appendChild(lft);
+if(r.ok===true) head.appendChild(el('<span class="pill green" style="flex:0 0 auto;">정답</span>'));
+else if(r.ok===false) head.appendChild(el('<span class="pill" style="flex:0 0 auto;background:var(--red-bg);color:var(--red);">오답</span>'));
+else head.appendChild(el('<span class="pill accent" style="flex:0 0 auto;">직접 확인</span>'));
+c.appendChild(head);
+if(r.ok===false){
+var m=el('<p class="muted" style="margin:6px 0 0;"></p>');
+m.textContent='내 답: '+r.mine+'  /  정답: '+r.ans;
+c.appendChild(m);
+} else if(r.ok===null && r.mine && r.mine!=='(녹음)'){
+var w=el('<p class="muted" style="margin:6px 0 0;white-space:pre-line;max-height:160px;overflow:auto;"></p>');
+w.textContent=r.mine;
+c.appendChild(w);
+}
+panel.appendChild(c);
+});
+
+var again=el('<div class="row" style="margin-top:14px;gap:8px;"></div>');
+var backBtn=el('<button class="btn primary small">새 모의고사</button>');
+backBtn.onclick=function(){ MOCK=null; renderMock(); };
+again.appendChild(backBtn);
+panel.appendChild(again);
 }
 
 /* ================= PROGRESS ================= */
