@@ -233,6 +233,7 @@ button.btn.small{padding:7px 11px;font-size:12.5px;}
 .labelchip:hover{border-color:var(--border-strong);}
 .labelchip.on{background:var(--accent-bg);border-color:var(--accent);color:var(--accent-text);font-weight:600;}
 .labelchip input{margin:0;accent-color:var(--accent);cursor:pointer;}
+.labelchip.empty{opacity:.5;}
 
 /* ---- 대본 줄 ---- */
 .sline{padding:3px 6px;border-radius:5px;line-height:1.75;transition:background .15s ease;}
@@ -917,15 +918,17 @@ function allReading(){ return BUILTIN.reading.concat(DATA.reading||[]); }
 function allListening(){ return BUILTIN.listening.concat(DATA.listening||[]); }
 function allSpeaking(){ return BUILTIN.speaking.concat(DATA.speaking||[]); }
 function allWriting(k){ return BUILTIN.writing[k].concat((DATA.writing||{})[k]||[]); }
-function eachLabeledItem(fn){
-allReading().forEach(fn);
-allListening().forEach(fn);
-allSpeaking().forEach(fn);
-['buildSentence','email','discussion'].forEach(function(k){ allWriting(k).forEach(fn); });
+/* scope를 주면 그 영역만, 안 주면 전체를 훑어요.
+   라벨 목록은 전체 기준이어야 탭마다 칩이 달라지지 않습니다. */
+function eachLabeledItem(fn, scope){
+if(!scope || scope==='reading') allReading().forEach(fn);
+if(!scope || scope==='listening') allListening().forEach(fn);
+if(!scope || scope==='speaking') allSpeaking().forEach(fn);
+if(!scope || scope==='writing'){ ['buildSentence','email','discussion'].forEach(function(k){ allWriting(k).forEach(fn); }); }
 }
-function countByLabel(){
+function countByLabel(scope){
 var m={};
-eachLabeledItem(function(it){ var l=labelOf(it); m[l]=(m[l]||0)+1; });
+eachLabeledItem(function(it){ var l=labelOf(it); m[l]=(m[l]||0)+1; }, scope);
 return m;
 }
 
@@ -954,13 +957,15 @@ return el('<span class="'+cls+'" style="margin-left:6px;font-size:11px;">'+escap
 }
 
 /* 라벨 필터 체크박스 줄 — 각 영역 목록 위에 */
-function buildLabelFilterBar(rerender){
-var labels=allLabels(), counts=countByLabel();
+function buildLabelFilterBar(rerender, scope){
+var labels=allLabels(), counts=countByLabel(scope);
 var wrap=el('<div class="labelbar"></div>');
 wrap.appendChild(el('<span class="labelbar-title">라벨</span>'));
 labels.forEach(function(l){
 var on = !LABEL_FILTER || LABEL_FILTER.indexOf(l)!==-1;
-var chip=el('<label class="labelchip'+(on?' on':'')+'"></label>');
+var n=counts[l]||0;
+var chip=el('<label class="labelchip'+(on?' on':'')+(n===0?' empty':'')+'"></label>');
+if(n===0) chip.title='이 영역에는 이 라벨의 문제가 없어요.';
 var cb=document.createElement('input');
 cb.type='checkbox'; cb.checked=on;
 cb.onchange=function(){
@@ -973,7 +978,7 @@ saveLabelFilter();
 rerender();
 };
 chip.appendChild(cb);
-chip.appendChild(document.createTextNode(l+' '+(counts[l]||0)));
+chip.appendChild(document.createTextNode(l+' '+n));
 wrap.appendChild(chip);
 });
 var allBtn=el('<button class="btn small" style="margin-left:auto;">전체 보기</button>');
@@ -2097,7 +2102,7 @@ function renderReading(){
 var panel=document.getElementById('panel-reading'); panel.innerHTML='';
 panel.appendChild(buildAddPanel('reading','리딩 문제', buildReadingForm));
 panel.appendChild(taskSubtabs('reading', READING_TASK_TYPES, renderReading));
-panel.appendChild(buildLabelFilterBar(renderReading));
+panel.appendChild(buildLabelFilterBar(renderReading, 'reading'));
 READING_TASK_TYPES.filter(function(i){return i.id===curTask('reading',READING_TASK_TYPES);}).forEach(function(info){
 panel.appendChild(el('<div class="task-head">'+taskHeader(info)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info.hint+'</p>'));
@@ -2422,7 +2427,7 @@ function renderListening(){
 var panel=document.getElementById('panel-listening'); panel.innerHTML='';
 panel.appendChild(buildAddPanel('listening','리스닝 문제', buildListeningForm));
 panel.appendChild(taskSubtabs('listening', LISTENING_TASK_TYPES, renderListening));
-panel.appendChild(buildLabelFilterBar(renderListening));
+panel.appendChild(buildLabelFilterBar(renderListening, 'listening'));
 LISTENING_TASK_TYPES.filter(function(i){return i.id===curTask('listening',LISTENING_TASK_TYPES);}).forEach(function(info){
 panel.appendChild(el('<div class="task-head">'+taskHeader(info)+'</div>'));
 panel.appendChild(el('<p class="task-hint">'+info.hint+'</p>'));
@@ -4006,7 +4011,7 @@ panel.appendChild(card);
 if(DATA.writing.discussion.length===0) panel.appendChild(el('<p class="muted">'+(LABEL_FILTER?'이 라벨에 해당하는 문제가 없어요. 위에서 라벨을 켜보세요.':'아직 등록된 문제가 없어요.')+'</p>'));
 __real.appendChild(buildAddPanel('writing','라이팅 문제', buildWritingForm));
 __real.appendChild(taskSubtabs('writing', WRITING_TASK_TYPES, renderWritingSpeaking));
-__real.appendChild(buildLabelFilterBar(renderWritingSpeaking));
+__real.appendChild(buildLabelFilterBar(renderWritingSpeaking, 'writing'));
 __real.appendChild(__sec[curTask('writing', WRITING_TASK_TYPES)]);
 }
 
@@ -4277,7 +4282,7 @@ if(visibleItems(allSpeaking().filter(function(t){return t.taskType==='interview'
 
 __real.appendChild(buildAddPanel('speaking','스피킹 문제', buildSpeakingForm));
 __real.appendChild(taskSubtabs('speaking', SPEAKING_TASK_TYPES, renderWritingSpeaking));
-__real.appendChild(buildLabelFilterBar(renderWritingSpeaking));
+__real.appendChild(buildLabelFilterBar(renderWritingSpeaking, 'speaking'));
 __real.appendChild(__sec[curTask('speaking', SPEAKING_TASK_TYPES)]);
 }
 
