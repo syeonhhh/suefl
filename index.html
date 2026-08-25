@@ -345,6 +345,19 @@ color-scheme:dark;
 *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
 }
 
+/* 전치사 연습 — 답이 몇 글자인지 드러나면 안 되므로 칸을 나누지 않고 고정 폭 밑줄 */
+.prep-word{font-size:22px;font-weight:650;color:var(--text);}
+input[type=text].prep-input{display:inline-block;width:9ch;margin:0 0 0 10px;padding:1px 2px 4px;
+font-family:inherit;font-size:22px;font-weight:600;line-height:1.4;
+border:none;border-bottom:2px solid var(--text-3);border-radius:0;
+background:transparent;color:var(--text);text-align:center;}
+input[type=text].prep-input:focus{outline:none;border-bottom-color:var(--accent);box-shadow:none;}
+input[type=text].prep-input.correct{color:var(--green);border-bottom-color:var(--green);}
+input[type=text].prep-input.wrong{color:var(--red);border-bottom-color:var(--red);}
+.prep-chip{font:inherit;font-size:14px;padding:6px 15px;border-radius:18px;
+border:1px solid var(--border-strong);background:var(--card);color:var(--text);cursor:pointer;}
+.prep-chip:hover{background:var(--accent-bg);border-color:var(--accent);}
+
 /* 철자 연습 — 빈칸과 같은 방식으로 글자 수만큼 칸을 그리되, 여긴 테마 색을 씁니다 */
 .cw-stem{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;
 font-size:22px;font-weight:650;letter-spacing:.45ch;color:var(--text);}
@@ -353,7 +366,7 @@ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;
 font-size:22px;line-height:1.4;letter-spacing:.45ch;
 border:none;border-radius:0;background-color:transparent;color:var(--text);
 text-align:left;vertical-align:baseline;
-background-image:linear-gradient(to right,var(--border-strong) 0 1ch,transparent 1ch);
+background-image:linear-gradient(to right,var(--text-3) 0 1ch,transparent 1ch);
 background-size:1.45ch 2px;background-repeat:repeat-x;background-position:0 100%;}
 input[type=text].cw-input:focus{outline:none;
 background-image:linear-gradient(to right,var(--accent) 0 1ch,transparent 1ch);}
@@ -1083,6 +1096,7 @@ afterSave && afterSave();
 function defaultData(){
 return {
 cwWords:[],
+prepWords:[],
 vocab:[{id:'ex-vocab-1',word:'abundant',pos:'adj.',def:'풍부한, 매우 많은',example:'Fresh water is abundant in this region. (예시 — 삭제하고 직접 단어를 추가해보세요)'}],
 reading:[
 {id:'ex-read-cw', taskType:'completeWords', title:'예시 (삭제 가능)', passage:'Many scientists believe climate change is accelerat[[ing]] due to human activity, and the process may be irrevers[[ible]] once certain thresholds are crossed.', questions:[]},
@@ -1106,6 +1120,7 @@ function migrateData(d){
 if(!d || typeof d!=='object') return defaultData();
 if(!Array.isArray(d.labels)) d.labels=[];
 if(!Array.isArray(d.cwWords)) d.cwWords=[];
+if(!Array.isArray(d.prepWords)) d.prepWords=[];
 /* 라벨 없는 기존 항목은 '추가'로 */
 (function(){
 function tag(arr){ (arr||[]).forEach(function(x){ if(x && !x.label) x.label='추가'; }); }
@@ -1351,6 +1366,7 @@ pruneDeleted();
 var rd=p.data||{};
 DATA.vocab=dropDeleted(mergeById(DATA.vocab, rd.vocab));
 DATA.cwWords=dropDeleted(mergeById(DATA.cwWords||[], rd.cwWords));
+DATA.prepWords=dropDeleted(mergeById(DATA.prepWords||[], rd.prepWords));
 DATA.reading=dropDeleted(mergeById(DATA.reading, rd.reading));
 DATA.listening=dropDeleted(mergeById(DATA.listening, rd.listening));
 DATA.speaking=dropDeleted(mergeById(DATA.speaking, rd.speaking));
@@ -1944,6 +1960,7 @@ item.appendChild(kebabMenu([
 ]));
 listCard.appendChild(item);
 });
+panel.appendChild(buildPrepDrill(renderVocab));
 panel.appendChild(listCard);
 
 }
@@ -4355,6 +4372,297 @@ __real.appendChild(buildAddPanel('speaking','스피킹 문제', buildSpeakingFor
 __real.appendChild(taskSubtabs('speaking', SPEAKING_TASK_TYPES, renderWritingSpeaking));
 __real.appendChild(buildLabelFilterBar(renderWritingSpeaking, 'speaking'));
 __real.appendChild(__sec[curTask('speaking', SPEAKING_TASK_TYPES)]);
+}
+
+/* ================= 전치사 연습 =================
+   compare → with 처럼 단어와 함께 쓰는 전치사를 직접 타이핑해서 맞히는 연습.
+   라이팅·스피킹에서는 스스로 만들어 써야 하므로 고르기가 아니라 타이핑이 기본이고,
+   막힐 때만 보기를 열어볼 수 있게 했어요(그 문항은 힌트 본 것으로 기록). */
+function prepWords(){ if(!Array.isArray(DATA.prepWords)) DATA.prepWords=[]; return DATA.prepWords; }
+
+var PREP_POOL=['of','to','with','in','on','for','at','from','about','by','into','as','against','between','over','under'];
+
+/* 기본 세트 — TOEFL에서 자주 나오는 짝. 처음 열었을 때 바로 연습할 수 있게. */
+var PREP_STARTER=[
+['compare',['with','to'],'with: 차이·유사점을 따져볼 때 / to: 비유할 때'],
+['agree',['with','on','to'],'with: 사람과 / on: 사안에 / to: 제안을 받아들일 때'],
+['depend',['on','upon'],''],
+['consist',['of'],''],
+['result',['in','from'],'in: 결과를 낳다 / from: ~에서 비롯되다'],
+['focus',['on'],''],
+['rely',['on','upon'],''],
+['belong',['to'],''],
+['participate',['in'],''],
+['succeed',['in'],''],
+['interfere',['with'],''],
+['contribute',['to'],''],
+['refer',['to'],''],
+['apply',['for','to'],'for: 지원하다 / to: 적용되다'],
+['approve',['of'],''],
+['benefit',['from'],''],
+['capable',['of'],''],
+['concerned',['about','with'],'about: 걱정하다 / with: 관련되다'],
+['deal',['with'],''],
+['differ',['from'],''],
+['familiar',['with'],''],
+['insist',['on'],''],
+['object',['to'],''],
+['prevent',['from'],''],
+['related',['to'],''],
+['responsible',['for'],''],
+['similar',['to'],''],
+['specialize',['in'],''],
+['substitute',['for'],''],
+['suffer',['from'],''],
+['aware',['of'],''],
+['based',['on'],''],
+['composed',['of'],''],
+['derived',['from'],''],
+['exposed',['to'],''],
+['involved',['in'],''],
+['opposed',['to'],''],
+['satisfied',['with'],''],
+['associated',['with'],''],
+['attributed',['to'],''],
+['characterized',['by'],''],
+['divided',['into'],''],
+['known',['for'],''],
+['regarded',['as'],''],
+['account',['for'],''],
+['adapt',['to'],''],
+['blame',['for','on'],'blame A for B / blame B on A'],
+['borrow',['from'],''],
+['consist',['of'],''],
+['distinguish',['from','between'],''],
+['emerge',['from'],''],
+['engage',['in'],''],
+['escape',['from'],''],
+['glance',['at'],''],
+['hope',['for'],''],
+['lead',['to'],''],
+['long',['for'],''],
+['operate',['on'],''],
+['prefer',['to'],''],
+['prohibit',['from'],''],
+['recover',['from'],''],
+['reflect',['on'],''],
+['stem',['from'],''],
+['struggle',['with'],''],
+['transform',['into'],''],
+['vote',['for','against'],'']
+];
+
+function prepAdd(word, preps, note){
+var w=String(word||'').trim().toLowerCase();
+var ps=(preps||[]).map(function(x){ return String(x||'').trim().toLowerCase(); }).filter(Boolean);
+if(!w || !ps.length) return null;
+var found=null;
+prepWords().forEach(function(r){ if(!found && r.word===w) found=r; });
+if(found){
+/* 같은 단어면 전치사만 합쳐요 */
+ps.forEach(function(x){ if(found.preps.indexOf(x)===-1) found.preps.push(x); });
+if(note && !found.note) found.note=note;
+return null;
+}
+var rec={id:uid(), word:w, preps:ps, note:String(note||''), right:0, wrong:0,
+         addedAt:new Date().toISOString().slice(0,10)};
+prepWords().push(rec);
+return rec;
+}
+
+var PREP_DRILL=null;    /* {order:[id], idx, checked, hinted} */
+var PREP_LIST_OPEN=false, PREP_ADD_OPEN=false;
+
+function prepStart(){
+var ws=prepWords();
+if(!ws.length){ PREP_DRILL=null; return; }
+PREP_DRILL={order:shuffled(ws.map(function(w){return w.id;})), idx:0, checked:false, hinted:false};
+}
+function prepCurrent(){
+if(!PREP_DRILL) return null;
+var id=PREP_DRILL.order[PREP_DRILL.idx], found=null;
+prepWords().forEach(function(w){ if(w.id===id) found=w; });
+return found;
+}
+/* 보기 4개 — 정답 하나에 헷갈리기 쉬운 것 셋 */
+function prepChoices(rec){
+var out=[rec.preps[0]];
+var pool=PREP_POOL.filter(function(x){ return rec.preps.indexOf(x)===-1; });
+shuffled(pool).slice(0,3).forEach(function(x){ out.push(x); });
+return shuffled(out);
+}
+
+function buildPrepDrill(rerender){
+var card=el('<div class="card"></div>');
+var ws=prepWords();
+var head=el('<div class="row" style="justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"></div>');
+head.appendChild(el('<h3 style="margin:0;">전치사 연습 <span class="muted" style="font-weight:400;font-size:13px;">'+ws.length+'개</span></h3>'));
+var hb=el('<div class="row" style="gap:6px;"></div>');
+var addBtn=el('<button class="btn small">+ 추가</button>');
+addBtn.onclick=function(){ PREP_ADD_OPEN=!PREP_ADD_OPEN; rerender(); };
+var listBtn=el('<button class="btn small">목록</button>');
+listBtn.onclick=function(){ PREP_LIST_OPEN=!PREP_LIST_OPEN; rerender(); };
+hb.appendChild(addBtn); hb.appendChild(listBtn);
+head.appendChild(hb);
+card.appendChild(head);
+card.appendChild(el('<p class="muted" style="margin:6px 0 0;">단어와 함께 쓰는 전치사를 직접 써보세요. 막히면 보기를 열 수 있어요.</p>'));
+
+/* ---- 추가 ---- */
+if(PREP_ADD_OPEN){
+var box=el('<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--border-strong);border-radius:8px;"></div>');
+box.appendChild(el('<p class="muted" style="margin:0 0 6px;">한 줄에 하나씩. <code>compare = with, to</code> 처럼 쓰고, 설명을 붙이려면 <code>compare = with, to | with는 차이 비교</code> 처럼 | 뒤에 적으세요.</p>'));
+var ta=el('<textarea placeholder="compare = with, to | with: 차이 비교 / to: 비유&#10;depend = on" style="min-height:90px;"></textarea>');
+var msg=el('<p class="muted" style="margin:6px 0 0;min-height:16px;"></p>');
+var row=el('<div class="row" style="margin-top:8px;gap:6px;"></div>');
+var ok=el('<button class="btn primary small">추가</button>');
+ok.onclick=function(){
+var added=0, merged=0;
+ta.value.split('\n').forEach(function(line){
+var t=line.trim(); if(!t) return;
+var note='';
+var bar=t.indexOf('|');
+if(bar>=0){ note=t.slice(bar+1).trim(); t=t.slice(0,bar).trim(); }
+var eq=t.indexOf('=');
+if(eq<0) return;
+var w=t.slice(0,eq).trim();
+var ps=t.slice(eq+1).split(',').map(function(x){return x.trim();}).filter(Boolean);
+if(!w || !ps.length) return;
+if(prepAdd(w, ps, note)) added++; else merged++;
+});
+if(!added && !merged){ msg.textContent='「단어 = 전치사」 형식으로 입력해주세요.'; msg.style.color='var(--red)'; return; }
+saveData(); PREP_DRILL=null;
+msg.textContent=added+'개 추가했어요.'+(merged?(' '+merged+'개는 이미 있어서 전치사만 합쳤어요.'):'');
+ta.value='';
+rerender();
+};
+var seed=el('<button class="btn small">기본 세트 넣기</button>');
+seed.onclick=function(){
+var n=0;
+PREP_STARTER.forEach(function(x){ if(prepAdd(x[0], x[1], x[2])) n++; });
+saveData(); PREP_DRILL=null; rerender();
+};
+row.appendChild(ok); row.appendChild(seed);
+box.appendChild(ta); box.appendChild(row); box.appendChild(msg);
+card.appendChild(box);
+}
+
+/* ---- 목록 ---- */
+if(PREP_LIST_OPEN){
+var lb=el('<div style="margin-top:10px;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;"></div>');
+if(!ws.length) lb.appendChild(el('<p class="muted" style="margin:10px 12px;">아직 없어요.</p>'));
+ws.slice().sort(function(a,b){ return (b.wrong||0)-(a.wrong||0); }).forEach(function(w){
+var r=el('<div class="row" style="justify-content:space-between;align-items:flex-start;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);"></div>');
+var left=el('<div style="min-width:0;"></div>');
+left.appendChild(el('<span><strong>'+escapeHtml(w.word)+'</strong> + '+escapeHtml(w.preps.join(' / '))+'</span>'));
+left.appendChild(el('<span class="muted" style="margin-left:8px;font-size:12px;">맞음 '+(w.right||0)+' · 틀림 '+(w.wrong||0)+'</span>'));
+if(w.note) left.appendChild(el('<div class="muted" style="font-size:12px;margin-top:2px;">'+escapeHtml(w.note)+'</div>'));
+r.appendChild(left);
+var del=el('<button class="btn small danger">삭제</button>');
+del.onclick=function(){
+markDeleted(w.id);
+DATA.prepWords=prepWords().filter(function(x){ return x.id!==w.id; });
+saveData(); PREP_DRILL=null; rerender();
+};
+r.appendChild(del);
+lb.appendChild(r);
+});
+card.appendChild(lb);
+}
+
+/* ---- 연습 ---- */
+if(!ws.length){
+var empty=el('<div style="margin-top:12px;"></div>');
+empty.appendChild(el('<p class="muted" style="margin:0 0 8px;">아직 등록된 게 없어요. 자주 나오는 짝을 한 번에 넣어보세요.</p>'));
+var sb=el('<button class="btn primary small">기본 세트 넣기 ('+PREP_STARTER.length+'개)</button>');
+sb.onclick=function(){
+PREP_STARTER.forEach(function(x){ prepAdd(x[0], x[1], x[2]); });
+saveData(); PREP_DRILL=null; rerender();
+};
+empty.appendChild(sb);
+card.appendChild(empty);
+return card;
+}
+if(!PREP_DRILL || !prepCurrent()) prepStart();
+var cur=prepCurrent();
+if(!cur) return card;
+
+var quiz=el('<div style="margin-top:14px;padding:18px 16px;border-radius:10px;background:var(--accent-bg);text-align:center;"></div>');
+var line=el('<div style="display:inline-flex;align-items:baseline;justify-content:center;"></div>');
+var wEl=el('<span class="prep-word"></span>');
+wEl.textContent=cur.word;
+line.appendChild(wEl);
+var inp=document.createElement('input');
+inp.type='text'; inp.className='prep-input';
+inp.autocapitalize='off'; inp.autocomplete='off'; inp.spellcheck=false;
+line.appendChild(inp);
+quiz.appendChild(line);
+
+var fb=el('<p class="muted" style="margin:10px 0 0;min-height:18px;"></p>');
+quiz.appendChild(fb);
+var chipRow=el('<div class="row" style="margin-top:8px;justify-content:center;gap:6px;flex-wrap:wrap;"></div>');
+quiz.appendChild(chipRow);
+
+var btnRow=el('<div class="row" style="margin-top:10px;justify-content:center;gap:8px;"></div>');
+var checkBtn=el('<button class="btn primary small">확인</button>');
+var hintBtn=el('<button class="btn small">보기 보여줘</button>');
+var nextBtn=el('<button class="btn small">다음</button>');
+btnRow.appendChild(checkBtn); btnRow.appendChild(hintBtn); btnRow.appendChild(nextBtn);
+quiz.appendChild(btnRow);
+quiz.appendChild(el('<p class="muted" style="margin:8px 0 0;font-size:12px;">'+(PREP_DRILL.idx+1)+' / '+PREP_DRILL.order.length+'</p>'));
+
+function goNext(){
+PREP_DRILL.idx++;
+if(PREP_DRILL.idx>=PREP_DRILL.order.length) prepStart();
+PREP_DRILL.checked=false; PREP_DRILL.hinted=false;
+rerender();
+}
+function doCheck(){
+if(PREP_DRILL.checked){ goNext(); return; }
+var mine=inp.value.trim().toLowerCase();
+if(!mine){ fb.textContent='전치사를 입력해주세요.'; fb.style.color='var(--red)'; return; }
+var ok=cur.preps.indexOf(mine)!==-1;
+PREP_DRILL.checked=true;
+inp.disabled=true;
+inp.classList.add(ok?'correct':'wrong');
+chipRow.innerHTML='';
+if(ok){
+if(!PREP_DRILL.hinted) cur.right=(cur.right||0)+1;
+fb.textContent = PREP_DRILL.hinted ? '맞았어요 (보기를 봤어요)' : '맞았어요!';
+fb.style.color='var(--green)';
+} else {
+cur.wrong=(cur.wrong||0)+1;
+fb.textContent='정답: '+cur.word+' + '+cur.preps.join(' / ');
+fb.style.color='var(--red)';
+}
+/* 다른 전치사도 쓸 수 있으면 같이 보여줘요 */
+if(cur.preps.length>1 || cur.note){
+var extra=el('<p class="muted" style="margin:6px 0 0;font-size:12.5px;"></p>');
+extra.textContent = (cur.preps.length>1 ? (cur.word+' + '+cur.preps.join(' / ')+'  ') : '') + (cur.note||'');
+chipRow.appendChild(extra);
+}
+saveData();
+checkBtn.textContent='다음 문제';
+hintBtn.disabled=true;
+}
+checkBtn.onclick=doCheck;
+nextBtn.onclick=goNext;
+hintBtn.onclick=function(){
+if(PREP_DRILL.checked) return;
+PREP_DRILL.hinted=true;
+hintBtn.disabled=true;
+chipRow.innerHTML='';
+prepChoices(cur).forEach(function(op){
+var c=el('<button type="button" class="prep-chip"></button>');
+c.textContent=op;
+c.onclick=function(){ inp.value=op; inp.focus(); };
+chipRow.appendChild(c);
+});
+};
+inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); doCheck(); } });
+
+card.appendChild(quiz);
+setTimeout(function(){ try{ inp.focus(); }catch(e){} }, 0);
+return card;
 }
 
 /* ================= Reading Task 1 철자 연습 =================

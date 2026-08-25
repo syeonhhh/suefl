@@ -63,6 +63,7 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `buildMockUnits` | 뽑은 문제를 푸는 단위로 펼침 (리딩·리스닝은 문항 단위) |
 | `buildCwDrill` | 리딩 Task 1 철자 연습 (`wi__` 맞히기). 틀린 빈칸 자동 수집 |
 | `cwSplit` / `blankWordParts` | 단어를 어간+어미로 가르기 / 지문에서 빈칸 앞 어간 찾기 |
+| `buildPrepDrill` | 전치사 연습 (단어 탭). 타이핑이 기본, 막히면 보기 4개 |
 
 ### 모의고사
 
@@ -94,7 +95,7 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 
 | 키 | 내용 |
 |---|---|
-| `toeflData` | 단어·리딩·리스닝·라이팅·스피킹 문제, 철자 연습 단어(`cwWords`) |
+| `toeflData` | 단어·리딩·리스닝·라이팅·스피킹 문제, 철자 연습(`cwWords`), 전치사 연습(`prepWords`) |
 | `toeflProgress` | 진도. `{readingScores:{id:{answers:[{selected,correct}]}}, ...}` |
 | `toeflNotes` | 자유 메모장 |
 | `toeflAnnotations` | 필기(형광펜·메모) HTML |
