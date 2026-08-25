@@ -64,12 +64,24 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 
 ### 모의고사
 
-`MOCK_PLANS`에 영역별 기본 문항 수와 제한 시간이 있음.
-⚠ **이 기본값은 TOEFL Essentials를 참고해 잡은 추정치**라 공식 시험과 다를 수 있음.
+`MOCK_PLANS`에 영역별 문항 수와 제한 시간. **숫자는 지문 수가 아니라 문항 수**.
+
+출처: ETS 공개 TOEFL iBT 구성 (2026 개편, ets.org/toefl/test-takers/ibt/about/content)
+
+| 영역 | 문항 | 시간 | 유형별 배분 |
+|---|---|---|---|
+| 리딩 | 50 | 30분 | Complete the Words 20 / Daily Life 12 / Academic 18 |
+| 리스닝 | 47 | 29분 | Choose a Response 17 / Conversation 10 / Announcement 8 / Academic Talk 12 |
+| 라이팅 | 12 | 23분 | Build a Sentence 10 / Email 1 / Discussion 1 |
+| 스피킹 | 11 | 8분 | Listen and Repeat 7 / Interview 4 |
+
+영역 합계와 시간은 ETS 공식 수치. 실제 시험은 **적응형**이라 유형별 문항 수가
+매번 달라지므로, 유형별 배분은 공개된 범위 안에서 잡은 대표값임.
 사용자가 설정 화면에서 고칠 수 있고 `toeflMockCfg`에 저장됨.
-공식 문항 수를 확인하면 `MOCK_PLANS`를 고칠 것.
 
 - 출제 범위는 지금 켜둔 라벨(`LABEL_FILTER`)을 그대로 따름
+- 목표 문항 수를 채울 때까지 지문을 뽑되 지문 중간은 안 자름.
+  하나 더 넣는 게 목표에서 멀어지면 멈춤 → 결과가 목표보다 몇 문항 넘거나 모자랄 수 있음
 - 리딩·리스닝은 자동 채점, 라이팅·스피킹은 작성/녹음만 남김
 - 시간이 끝나면 자동 제출
 

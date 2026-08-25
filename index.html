@@ -4334,14 +4334,23 @@ __real.appendChild(__sec[curTask('speaking', SPEAKING_TASK_TYPES)]);
    저장해둔 문제 중 지금 켜둔 라벨에 해당하는 것을 무작위로 뽑아
    실제 시험과 같은 구성·시간으로 한 세트를 만들어 풀어요.
 
-   ⚠ 아래 기본 문항 수와 시간은 TOEFL Essentials 기준으로 잡아둔 값이라
-   공식 시험과 다를 수 있어요. 설정 화면에서 직접 고칠 수 있고,
-   고친 값은 저장됩니다. */
+   숫자는 '지문 수'가 아니라 '문항 수'예요. 지문 하나에 문항이 여러 개면
+   목표 문항 수를 채울 때까지 지문을 뽑습니다.
+
+   기준: ETS가 공개한 TOEFL iBT 구성 (2026 개편)
+   리딩 50문항/30분, 리스닝 47문항/29분, 라이팅 12문항/23분, 스피킹 11문항/8분.
+   실제 시험은 적응형이라 유형별 문항 수가 조금씩 달라지므로,
+   아래 유형별 배분은 공개된 범위 안에서 잡은 대표값이에요.
+   설정 화면에서 고칠 수 있고 고친 값은 저장됩니다. */
 var MOCK_PLANS={
-reading:  {label:'리딩',   minutes:22, types:READING_TASK_TYPES,   counts:{completeWords:2, dailyLife:3, academic:2}},
-listening:{label:'리스닝', minutes:17, types:LISTENING_TASK_TYPES, counts:{chooseResponse:6, conversation:2, announcement:1, academicTalk:2}},
-writing:  {label:'라이팅', minutes:27, types:WRITING_TASK_TYPES,   counts:{buildSentence:5, email:1, discussion:1}},
-speaking: {label:'스피킹', minutes:17, types:SPEAKING_TASK_TYPES,  counts:{listenRepeat:6, interview:1}}
+reading:  {label:'리딩',   minutes:30, total:50, types:READING_TASK_TYPES,
+           counts:{completeWords:20, dailyLife:12, academic:18}},
+listening:{label:'리스닝', minutes:29, total:47, types:LISTENING_TASK_TYPES,
+           counts:{chooseResponse:17, conversation:10, announcement:8, academicTalk:12}},
+writing:  {label:'라이팅', minutes:23, total:12, types:WRITING_TASK_TYPES,
+           counts:{buildSentence:10, email:1, discussion:1}},
+speaking: {label:'스피킹', minutes:8,  total:11, types:SPEAKING_TASK_TYPES,
+           counts:{listenRepeat:7, interview:4}}
 };
 var MOCK_SECTIONS=['reading','listening','writing','speaking'];
 
@@ -4372,21 +4381,45 @@ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]
 return a;
 }
 
+/* 이 문제 하나가 몇 문항짜리인지.
+   Complete the Words는 빈칸 하나가 한 문항, 나머지 리딩·리스닝은 딸린 문항 수. */
+function mockItemCount(sec, taskId, item){
+if(sec==='reading' && taskId==='completeWords') return parseBlanks(item.passage||'').blanks.length;
+if(sec==='reading' || sec==='listening') return (item.questions||[]).length;
+return 1;
+}
+function mockPoolCapacity(sec, taskId){
+var n=0;
+mockPool(sec,taskId).forEach(function(it){ n+=mockItemCount(sec,taskId,it); });
+return n;
+}
+function mockUnitsItemCount(sec, units){
+var n=0;
+units.forEach(function(u){ n += (u.kind==='blanks') ? mockItemCount(sec,u.taskId,u.item) : 1; });
+return n;
+}
+
 /* 뽑은 문제를 실제로 푸는 단위로 펼쳐요.
-   리딩·리스닝은 지문 하나에 문항이 여러 개라 문항 단위로 나눕니다. */
+   목표 문항 수를 채울 때까지 지문을 뽑되, 지문 중간은 자르지 않아요. */
 function buildMockUnits(sec, cfg){
 var units=[];
 MOCK_PLANS[sec].types.forEach(function(t){
-var want=cfg.counts[t.id]||0;
-if(want<=0) return;
-shuffled(mockPool(sec,t.id)).slice(0,want).forEach(function(item){
-if(sec==='reading' && t.id==='completeWords'){ units.push({kind:'blanks', taskId:t.id, item:item}); return; }
-if(sec==='reading' || sec==='listening'){
+var target=cfg.counts[t.id]||0;
+if(target<=0) return;
+var got=0;
+shuffled(mockPool(sec,t.id)).forEach(function(item){
+if(got>=target) return;
+var n=mockItemCount(sec,t.id,item);
+if(n<=0) return;
+/* 지문은 중간에 자를 수 없어요. 하나 더 넣는 게 목표에서 오히려 멀어지면 여기서 멈춥니다. */
+if(got>0 && Math.abs(got+n-target) > Math.abs(got-target)) return;
+if(sec==='reading' && t.id==='completeWords'){ units.push({kind:'blanks', taskId:t.id, item:item}); }
+else if(sec==='reading' || sec==='listening'){
 (item.questions||[]).forEach(function(q,qi){ units.push({kind:'mcq', taskId:t.id, item:item, q:q, qi:qi}); });
-return;
 }
-if(sec==='writing'){ units.push({kind:'writing', taskId:t.id, item:item}); return; }
-units.push({kind:'speaking', taskId:t.id, item:item});
+else if(sec==='writing'){ units.push({kind:'writing', taskId:t.id, item:item}); }
+else { units.push({kind:'speaking', taskId:t.id, item:item}); }
+got+=n;
 });
 });
 return units;
@@ -4429,7 +4462,7 @@ panel.appendChild(body);
 var sec=chosen, plan=MOCK_PLANS[sec], cfg=mockCfgFor(sec);
 var card=el('<div class="card"></div>');
 card.appendChild(el('<h3 style="margin:0 0 4px;">'+plan.label+' 모의고사 구성</h3>'));
-card.appendChild(el('<p class="muted" style="margin:0 0 12px;">기본값은 실제 시험을 참고해 잡아둔 값이에요. 숫자를 고치면 저장돼요.</p>'));
+card.appendChild(el('<p class="muted" style="margin:0 0 12px;">숫자는 <strong>문항 수</strong>예요 (지문 수가 아니에요). 기본값은 실제 TOEFL 구성 — '+plan.label+' '+plan.total+'문항 / '+plan.minutes+'분 — 에 맞춰뒀어요. 고치면 저장돼요.</p>'));
 
 var labelBar=buildLabelFilterBar(renderMock, sec);
 labelBar.style.marginBottom='12px';
@@ -4440,12 +4473,12 @@ var inputs={};
 var shortage=[];
 plan.types.forEach(function(t){
 var pool=mockPool(sec,t.id);
-var have=pool.length;
+var have=mockPoolCapacity(sec,t.id);
 var row=el('<div class="row" style="gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap;"></div>');
-var nIn=el('<input type="number" min="0" max="30" style="width:66px;">');
+var nIn=el('<input type="number" min="0" max="60" style="width:66px;">');
 nIn.value=cfg.counts[t.id];
 nIn.onchange=function(){
-var v=parseInt(nIn.value,10); if(isNaN(v)||v<0) v=0; if(v>30) v=30;
+var v=parseInt(nIn.value,10); if(isNaN(v)||v<0) v=0; if(v>60) v=60;
 nIn.value=v;
 MOCK_CFG[sec]=MOCK_CFG[sec]||{}; MOCK_CFG[sec].counts=MOCK_CFG[sec].counts||{};
 MOCK_CFG[sec].counts[t.id]=v; saveMockCfg(); renderMock();
@@ -4454,7 +4487,7 @@ inputs[t.id]=nIn;
 row.appendChild(nIn);
 row.appendChild(el('<span style="min-width:210px;">Task '+t.num+'. '+escapeHtml(t.label)+'</span>'));
 var want=cfg.counts[t.id]||0;
-var okTxt = have>=want ? ('보유 '+have+'개') : ('보유 '+have+'개 — '+(want-have)+'개 부족');
+var okTxt = have>=want ? ('보유 '+have+'문항 (지문 '+pool.length+'개)') : ('보유 '+have+'문항 — '+(want-have)+'문항 부족');
 var badge=el('<span class="muted" style="font-size:12px;"></span>');
 badge.textContent=okTxt;
 if(have<want){ badge.style.color='var(--red)'; shortage.push(t.label); }
@@ -4480,15 +4513,16 @@ card.appendChild(timeRow);
 
 /* 실제로 몇 문항이 만들어지는지 미리 세어봐요 */
 var preview=buildMockUnits(sec, cfg);
+var previewItems=mockUnitsItemCount(sec, preview);
 var note=el('<p class="muted" style="margin:12px 0 0;"></p>');
 if(preview.length===0){
 note.textContent='만들 수 있는 문항이 없어요. 위에서 문항 수를 올리거나, 라벨을 켜거나, 문제를 먼저 추가해주세요.';
 note.style.color='var(--red)';
 } else if(shortage.length){
-note.textContent='총 '+preview.length+'문항이 만들어져요. 다만 '+shortage.join(', ')+' 문제가 모자라서 그만큼 적게 나와요.';
+note.textContent='총 '+previewItems+'문항이 만들어져요 (실제 시험은 '+plan.total+'문항). '+shortage.join(', ')+' 문제가 모자라서 그만큼 적게 나와요.';
 note.style.color='var(--amber)';
 } else {
-note.textContent='총 '+preview.length+'문항이 만들어져요.';
+note.textContent='총 '+previewItems+'문항이 만들어져요 (실제 시험은 '+plan.total+'문항).';
 }
 card.appendChild(note);
 
