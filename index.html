@@ -152,9 +152,22 @@ textarea::placeholder,input::placeholder{color:var(--text-3);}
 .toefl-review-row.head{background:#eef1f4;font-weight:700;color:#13294b;cursor:default;font-size:12.5px;letter-spacing:.02em;text-transform:uppercase;}
 .toefl-review-row:not(.head):hover{background:#f0f4f8;}
 .toefl-review-row.picked:not(.head){background:#13294b;color:#fff;}
-.blank-input{display:inline-block;margin:0 2px;padding:2px 6px;font-size:14.5px;border:1px solid var(--border-strong);border-radius:4px;text-align:center;}
-.blank-input.correct{border-color:#2e7d32;background:var(--green-bg);}
-.blank-input.wrong{border-color:#c62828;background:var(--red-bg);}
+/* Task 1 빈칸 — 실제 토플처럼 빠진 글자 수만큼 칸이 보이게.
+   고정폭 글꼴 + 글자 간격에 맞춘 밑줄 배경으로 한 글자에 한 칸씩 그려요.
+   시험 프레임은 다크모드에서도 흰 배경이라 색을 고정값으로 둡니다. */
+input[type=text].blank-input{display:inline-block;margin:0 3px;padding:1px 0 3px;
+font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Courier New",monospace;
+font-size:14.5px;line-height:1.5;letter-spacing:.45ch;
+border:none;border-radius:0;background-color:transparent;color:#161616;
+text-align:left;vertical-align:baseline;
+background-image:linear-gradient(to right,#9c9691 0 1ch,transparent 1ch);
+background-size:1.45ch 2px;background-repeat:repeat-x;background-position:0 100%;}
+input[type=text].blank-input:focus{outline:none;
+background-image:linear-gradient(to right,#1565c0 0 1ch,transparent 1ch);}
+input[type=text].blank-input.correct{color:#1b5e20;background-color:transparent;
+background-image:linear-gradient(to right,#2e7d32 0 1ch,transparent 1ch);}
+input[type=text].blank-input.wrong{color:#b71c1c;background-color:transparent;
+background-image:linear-gradient(to right,#c62828 0 1ch,transparent 1ch);}
 /* 문장 배열 */
 .bsent-chip{display:inline-block;padding:8px 14px;margin:4px;border:1px solid var(--border);border-radius:var(--radius-xs);background:var(--card);cursor:pointer;font-size:14px;box-shadow:var(--shadow-1);transition:background .14s ease,transform .14s ease,box-shadow .14s ease;}
 .bsent-chip:hover{background:var(--surface);transform:translateY(-1px);box-shadow:var(--shadow-2);}
@@ -2051,6 +2064,11 @@ return '{{BLANK'+counter+'}}';
 return {display:display, blanks:blanks};
 }
 function stripBlankMarkers(text){ return String(text||'').replace(/\[\[([^\]]+)\]\]/g, '$1'); }
+/* 필기에서는 원래 어디가 빈칸이었는지 보여줘요.
+   서식을 칠하면 일반 태그는 걷혀 나가기 때문에 HTML이 아니라 글자로 표시합니다. */
+function markBlanksForNotes(text){
+return String(text||'').replace(/\[\[([^\]]+)\]\]/g, function(m, a){ return '['+a.trim()+']'; });
+}
 function renderBlankText(container, text, blanks){
 var refs=[];
 var regex=/\{\{BLANK(\d+)\}\}/g;
@@ -2064,7 +2082,7 @@ inp.type='text';
 inp.className='blank-input';
 var maxLen=(blank&&blank.answer?blank.answer.length:4);
 inp.maxLength=maxLen;
-inp.style.width=Math.max(42, (maxLen*11)+16)+'px';
+inp.style.width=(maxLen*1.45)+'ch';   /* 한 글자 = 1ch + 글자간격 .45ch */
 container.appendChild(inp);
 refs.push({num:num, input:inp, answer:blank?blank.answer:''});
 lastIndex=regex.lastIndex;
@@ -3352,7 +3370,7 @@ splitWrap.appendChild(splitL); splitWrap.appendChild(splitR);
 card.appendChild(splitWrap);
 
 var annotEntry=getAnnotEntry(item.id);
-var rawText = kind==='reading' ? (item.taskType==='completeWords'?stripBlankMarkers(item.passage):item.passage) : item.script;
+var rawText = kind==='reading' ? (item.taskType==='completeWords'?markBlanksForNotes(item.passage):item.passage) : item.script;
 if(rawText && String(rawText).trim()){
 var passageDiv=el('<div class="passage" style="max-height:calc(100vh - 190px);overflow-y:auto;"></div>');
 passageDiv.dataset.zoneKey='passage';
