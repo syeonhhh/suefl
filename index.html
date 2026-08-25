@@ -331,6 +331,12 @@ color-scheme:dark;
 *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
 }
 
+/* 단축키 줄 */
+.shortcut-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px 16px;margin:0 0 12px;font-size:12px;color:var(--text-2);}
+.shortcut-bar span{display:inline-flex;align-items:center;gap:5px;}
+.kbd{font-size:11px;font-weight:650;padding:1px 6px;border:1px solid var(--border-strong);
+border-bottom-width:2px;border-radius:4px;background:var(--bg);color:var(--text);white-space:nowrap;}
+
 /* 필기 화면 — 지문 왼쪽, 문제 오른쪽. 지문은 스크롤해도 따라와요 */
 .analysis-split{display:flex;gap:18px;align-items:flex-start;}
 .analysis-left{flex:0 0 45%;max-width:45%;min-width:0;position:sticky;top:12px;}
@@ -2262,9 +2268,13 @@ var qList=el('<div></div>'); box.appendChild(qList);
 var rows=[];
 function addRow(qData){
 var row=el('<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--card);"></div>');
-var qIn=el('<input type="text" placeholder="질문" style="width:100%;margin-bottom:6px;">');
+var qHead=el('<div class="row" style="gap:6px;margin-bottom:6px;align-items:center;"></div>');
+var numIn=el('<input type="text" placeholder="번호" title="비우면 순서대로 자동으로 붙어요. 질문 안에 번호가 이미 있으면 그대로 둡니다." style="width:78px;flex:0 0 78px;">');
+numIn.value=qData?(qData.num||''):'';
+var qIn=el('<input type="text" placeholder="질문" style="flex:1 1 auto;min-width:0;">');
 qIn.value=qData?(qData.q||''):'';
-row.appendChild(qIn);
+qHead.appendChild(numIn); qHead.appendChild(qIn);
+row.appendChild(qHead);
 var optInputs=[];
 var groupName='ge'+rows.length+'-'+uid();
 for(var i=0;i<4;i++){
@@ -2284,7 +2294,7 @@ var rmBtn=el('<button class="btn small danger">이 문제 삭제</button>');
 rmBtn.onclick=function(){ row.remove(); rows=rows.filter(function(r){return r.row!==row;}); };
 row.appendChild(rmBtn);
 qList.appendChild(row);
-rows.push({row:row,qIn:qIn,optInputs:optInputs,explIn:explIn,orig:qData});
+rows.push({row:row,numIn:numIn,qIn:qIn,optInputs:optInputs,explIn:explIn,orig:qData});
 }
 (item.questions||[]).forEach(function(q){ addRow(q); });
 if(rows.length===0) addRow(null);
@@ -2300,7 +2310,7 @@ if(!textIn2.value.trim() && !item.image){ warn2.textContent='본문 텍스트나
 var questions=rows.filter(function(r){return r.qIn.value.trim();}).map(function(r){
 var idx=0; r.optInputs.forEach(function(o,i){ if(o.radio.checked) idx=i; });
 var base=r.orig||{};
-return {id:base.id||uid(), q:r.qIn.value.trim(), opts:r.optInputs.map(function(o){return o.input.value.trim()||'-';}), answer:idx, image:base.image||null, explanation:r.explIn.value.trim(), script:base.script||'', explImage:base.explImage||null};
+return {id:base.id||uid(), num:r.numIn.value.trim(), q:r.qIn.value.trim(), opts:r.optInputs.map(function(o){return o.input.value.trim()||'-';}), answer:idx, image:base.image||null, explanation:r.explIn.value.trim(), script:base.script||'', explImage:base.explImage||null};
 });
 item.passage=textIn2.value.trim();
 item.questions=questions;
@@ -2538,9 +2548,13 @@ var qList=el('<div></div>'); box.appendChild(qList);
 var rows=[];
 function addRow(qData){
 var row=el('<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;background:var(--card);"></div>');
-var qIn=el('<input type="text" placeholder="질문" style="width:100%;margin-bottom:6px;">');
+var qHead=el('<div class="row" style="gap:6px;margin-bottom:6px;align-items:center;"></div>');
+var numIn=el('<input type="text" placeholder="번호" title="비우면 순서대로 자동으로 붙어요. 질문 안에 번호가 이미 있으면 그대로 둡니다." style="width:78px;flex:0 0 78px;">');
+numIn.value=qData?(qData.num||''):'';
+var qIn=el('<input type="text" placeholder="질문" style="flex:1 1 auto;min-width:0;">');
 qIn.value=qData?(qData.q||''):'';
-row.appendChild(qIn);
+qHead.appendChild(numIn); qHead.appendChild(qIn);
+row.appendChild(qHead);
 var optInputs=[];
 var groupName='ge'+rows.length+'-'+uid();
 for(var i=0;i<4;i++){
@@ -2560,7 +2574,7 @@ var rmBtn=el('<button class="btn small danger">이 문제 삭제</button>');
 rmBtn.onclick=function(){ row.remove(); rows=rows.filter(function(r){return r.row!==row;}); };
 row.appendChild(rmBtn);
 qList.appendChild(row);
-rows.push({row:row,qIn:qIn,optInputs:optInputs,explIn:explIn,orig:qData});
+rows.push({row:row,numIn:numIn,qIn:qIn,optInputs:optInputs,explIn:explIn,orig:qData});
 }
 (item.questions||[]).forEach(function(q){ addRow(q); });
 if(rows.length===0) addRow(null);
@@ -2577,7 +2591,7 @@ if(!textIn2.value.trim() && !item.image && !hasQScript2){ warn2.textContent='스
 var questions=rows.filter(function(r){return r.qIn.value.trim();}).map(function(r){
 var idx=0; r.optInputs.forEach(function(o,i){ if(o.radio.checked) idx=i; });
 var base=r.orig||{};
-return {id:base.id||uid(), q:r.qIn.value.trim(), opts:r.optInputs.map(function(o){return o.input.value.trim()||'-';}), answer:idx, image:base.image||null, explanation:r.explIn.value.trim(), script:base.script||'', explImage:base.explImage||null};
+return {id:base.id||uid(), num:r.numIn.value.trim(), q:r.qIn.value.trim(), opts:r.optInputs.map(function(o){return o.input.value.trim()||'-';}), answer:idx, image:base.image||null, explanation:r.explIn.value.trim(), script:base.script||'', explImage:base.explImage||null};
 });
 item.script=textIn2.value.trim();
 item.questions=questions;
@@ -2890,6 +2904,24 @@ renderQ();
 }
 
 /* ================= ANALYSIS / 필기 ================= */
+/* 문제 번호 — 교재에서 가져온 문제는 질문 안에 이미 "01." 같은 번호가 들어 있어요.
+   그 앞에 또 번호를 붙이면 두 번 나오니, 이미 있으면 붙이지 않습니다.
+   num을 직접 적어두면 그 값을 그대로 써요(비우면 순서대로 자동). */
+function hasOwnNumber(qText){ return /^\s*\(?\d+\s*[.)\]]/.test(String(qText||'')); }
+function questionNumLabel(qq, qi){
+var custom = qq && qq.num!=null ? String(qq.num).trim() : '';
+if(custom) return custom;
+if(hasOwnNumber(qq && qq.q)) return null;
+return String(qi+1);
+}
+
+/* 맥은 Ctrl 대신 ⌘ 를 보여줘요 */
+var MOD_KEY = /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl';
+var ANNOT_SHORTCUT = null;
+function detachAnnotShortcuts(){
+if(ANNOT_SHORTCUT){ document.removeEventListener('keydown', ANNOT_SHORTCUT); ANNOT_SHORTCUT=null; }
+}
+
 /* ---- 드래그하면 뜨는 선택 도구 ----
    영역마다 쓸 수 있는 동작이 달라요. 필기 화면은 서식+메모+단어장,
    문제 푸는 화면은 단어장만. 등록된 영역 안에서 드래그할 때만 뜹니다. */
@@ -3014,17 +3046,16 @@ var panelId = kind==='reading' ? 'panel-reading' : 'panel-listening';
 var panel=document.getElementById(panelId);
 panel.innerHTML='';
 var backList=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-backList.onclick=function(){ document.removeEventListener('keydown', highlightShortcut); document.removeEventListener('keydown', noteShortcut); kind==='reading'?renderReading():renderListening(); };
+backList.onclick=function(){ detachAnnotShortcuts(); kind==='reading'?renderReading():renderListening(); };
 var backExam=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 다시 보기</button>');
-backExam.onclick=function(){ document.removeEventListener('keydown', highlightShortcut); document.removeEventListener('keydown', noteShortcut); kind==='reading'?(item.taskType==='completeWords'?renderCompleteWordsExam(item):renderReadingExam(item)):renderListeningExam(item); };
+backExam.onclick=function(){ detachAnnotShortcuts(); kind==='reading'?(item.taskType==='completeWords'?renderCompleteWordsExam(item):renderReadingExam(item)):renderListeningExam(item); };
 panel.appendChild(backList); panel.appendChild(backExam);
 
 var info = kind==='reading' ? readingTaskInfo(item.taskType) : listeningTaskInfo(item.taskType);
 
 /* 필기 화면에서 바로 문제 내용을 고칠 수 있게 */
 function leaveAnalysis(){
-document.removeEventListener('keydown', highlightShortcut);
-document.removeEventListener('keydown', noteShortcut);
+detachAnnotShortcuts();
 }
 var editBtn=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 내용 수정</button>');
 var editHolder=el('<div style="margin-bottom:12px;"></div>');
@@ -3042,7 +3073,14 @@ panel.appendChild(editHolder);
 var card=el('<div class="card"></div>');
 card.appendChild(el('<p class="muted" style="margin:0 0 2px;">'+taskHeader(info)+'</p>'));
 card.appendChild(el('<h2>'+escapeHtml(item.title)+' — 분석</h2>'));
-card.appendChild(el('<p class="muted">지문과 아래 문제 문장·선지(보기) 모두 드래그해서 선택한 뒤 아래 도구로 형광펜, 밑줄, 네모박스, 메모를 남겨보세요. 드래그 후 Ctrl+H(맥은 ⌘+H)로 형광펜, Ctrl+M(맥은 ⌘+M)으로 메모를 바로 남길 수 있어요. 형광펜·밑줄·네모박스는 같은 부분에 함께 적용할 수 있어요. 메모가 달린 단어는 옆에 작은 점(●)으로 표시되고, 마우스를 올리면 메모 내용이 풍선으로 떠요(다른 줄을 가리지 않아요). 지우려면 표시된 부분을 클릭하면 지우기 버튼이 나타나요.</p>'));
+var scBar=el('<div class="shortcut-bar"></div>');
+[['H','형광펜'],['U','밑줄'],['B','네모박스'],['M','메모'],['D','단어장']].forEach(function(k){
+var g=el('<span></span>');
+g.appendChild(el('<kbd class="kbd">'+MOD_KEY+'+'+k[0]+'</kbd>'));
+g.appendChild(document.createTextNode(k[1]));
+scBar.appendChild(g);
+});
+card.appendChild(scBar);
 
 function getAnnotEntry(id){
 var v=ANNOTATIONS[id];
@@ -3315,7 +3353,7 @@ var passageDiv=el('<div class="passage" style="max-height:calc(100vh - 190px);ov
 passageDiv.dataset.zoneKey='passage';
 passageDiv.innerHTML = annotEntry.passage || escapeHtml(rawText);
 splitL.appendChild(passageDiv);
-splitL.appendChild(el('<p class="muted" style="margin-top:8px;">드래그하면 그 자리에 색 고르는 창이 떠요. 밑줄 아래 메모는 자동 저장돼요.</p>'));
+splitL.appendChild(el('<p class="muted" style="margin-top:8px;">드래그하면 그 자리에 색 고르는 창이 떠요. 표시된 부분을 클릭하면 지우기 버튼이 나와요.</p>'));
 cleanupEmptySpans(passageDiv);
 refreshBoxGroups(passageDiv);
 zones.push(passageDiv);
@@ -3331,7 +3369,8 @@ var qBlock=el('<div style="margin-bottom:16px;padding:12px;border:1px solid var(
 var qZoneKey='q-'+qi;
 var qTextDiv=el('<div style="font-weight:600;margin:0 0 8px;line-height:1.6;"></div>');
 qTextDiv.dataset.zoneKey=qZoneKey;
-qTextDiv.innerHTML = annotEntry.opts[qZoneKey] || ('Q'+(qi+1)+'. '+escapeHtml(qq.q||''));
+var numLab=questionNumLabel(qq, qi);
+qTextDiv.innerHTML = annotEntry.opts[qZoneKey] || ((numLab?('Q'+numLab+'. '):'')+escapeHtml(qq.q||''));
 qBlock.appendChild(qTextDiv);
 cleanupEmptySpans(qTextDiv);
 refreshBoxGroups(qTextDiv);
@@ -3620,16 +3659,25 @@ hideErase();
 }
 });
 }
-function highlightShortcut(e){
+function annotShortcut(e){
+if(!(e.ctrlKey||e.metaKey) || e.altKey || e.shiftKey) return;
 var key=(e.key||'').toLowerCase();
-if((e.ctrlKey||e.metaKey) && key==='h'){ e.preventDefault(); applyFormat('hl', hlPicker.get()); }
+if(key==='h'){ e.preventDefault(); applyFormat('hl', hlPicker.get()); }
+else if(key==='u'){ e.preventDefault(); applyFormat('ul', ulPicker.get()); }
+else if(key==='b'){ e.preventDefault(); applyFormat('box', boxPicker.get()); }
+else if(key==='m'){ e.preventDefault(); addNote(); }
+else if(key==='d'){
+e.preventDefault();
+var sel=window.getSelection();
+var txt=sel?sel.toString().trim():'';
+if(!txt){ showStatus('먼저 단어를 드래그해서 선택해주세요.', true); return; }
+quickAddWord(txt, function(msg){ showStatus(msg); });
 }
-function noteShortcut(e){
-var key=(e.key||'').toLowerCase();
-if((e.ctrlKey||e.metaKey) && key==='m'){ e.preventDefault(); addNote(); }
 }
-document.addEventListener('keydown', highlightShortcut);
-document.addEventListener('keydown', noteShortcut);
+/* 필기 화면을 다시 열 때 예전 핸들러가 쌓이지 않게 항상 갈아끼워요 */
+detachAnnotShortcuts();
+ANNOT_SHORTCUT=annotShortcut;
+document.addEventListener('keydown', annotShortcut);
 }
 
 /* ================= WRITING / SPEAKING ================= */
