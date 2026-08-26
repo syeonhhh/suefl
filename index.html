@@ -201,6 +201,9 @@ button.btn.iconbtn{flex:0 0 auto;padding:10px 12px;border-radius:var(--radius-sm
 .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--border);background:var(--card);flex:0 0 auto;}
 .drawer-body{padding:18px;overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1 1 auto;}
 .drawer-body .card:last-child{margin-bottom:0;}
+.confirm-overlay{position:fixed;inset:0;background:rgba(28,24,19,0.42);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;}
+.confirm-box{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 44px rgba(28,24,19,0.22);padding:20px;width:100%;max-width:340px;}
+.confirm-box p{margin:0 0 16px;line-height:1.55;}
 @media (max-width:640px){
 .wrap{padding:18px 13px 48px;}
 .apphead{gap:10px;margin-bottom:16px;}
@@ -1959,8 +1962,51 @@ NAV_BACK=false;
 window.scrollTo(0,0);
 }
 }
+/* alert/confirm은 Cowork 아티팩트에서 막혀서 직접 만든 확인창이에요 */
+var CONFIRM_EL=null;
+function hideConfirm(){
+if(CONFIRM_EL && CONFIRM_EL.parentNode) CONFIRM_EL.parentNode.removeChild(CONFIRM_EL);
+CONFIRM_EL=null;
+}
+function showConfirm(msgHtml, okLabel, onOk, cancelLabel){
+hideConfirm();
+var ov=el('<div class="confirm-overlay"></div>');
+var box=el('<div class="confirm-box"></div>');
+box.appendChild(el('<p>'+msgHtml+'</p>'));
+var row=el('<div class="row" style="gap:8px;justify-content:flex-end;"></div>');
+var cancel=el('<button class="btn small"></button>');
+cancel.textContent=cancelLabel||'취소';
+cancel.onclick=hideConfirm;
+var ok=el('<button class="btn small danger"></button>');
+ok.textContent=okLabel||'확인';
+ok.onclick=function(){ hideConfirm(); onOk(); };
+row.appendChild(cancel); row.appendChild(ok);
+box.appendChild(row); ov.appendChild(box);
+ov.onclick=function(e){ if(e.target===ov) hideConfirm(); };
+document.body.appendChild(ov);
+CONFIRM_EL=ov;
+ok.focus();
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && CONFIRM_EL) hideConfirm(); });
+
+/* 모의고사를 푸는 중엔 뒤로가기를 한 번 물어봐요 */
+function mockNavGuard(d){
+if(!(MOCK && !MOCK.finished)) return false;
+var cur=NAV[NAV_CUR-1], tgt=NAV[d-1];
+if(!cur || cur.tab!=='mock') return false;
+if(tgt && tgt.tab==='mock') return false;
+/* 이미 한 칸 뒤로 간 상태라 다시 채워넣어야 화면과 history 깊이가 맞아요 */
+try{ history.pushState({d:NAV_CUR}, ''); }catch(e){}
+showConfirm('모의고사를 푸는 중이에요.<br>지금 나가면 푼 내용이 사라져요.', '뒤로가기', function(){
+mockStop(); MOCK=null; renderMock();
+history.back();
+}, '취소');
+return true;
+}
 window.addEventListener('popstate', function(ev){
-navRestore((ev.state && ev.state.d) || 1);
+var d=(ev.state && ev.state.d) || 1;
+if(mockNavGuard(d)) return;
+navRestore(d);
 });
 /* 화면 안의 "← 목록으로" 버튼도 이걸 써야 history와 어긋나지 않아요 */
 function navBack(fallback){
