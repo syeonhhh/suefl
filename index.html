@@ -2190,6 +2190,14 @@ return {display:display, blanks:blanks};
 function stripBlankMarkers(text){ return String(text||'').replace(/\[\[([^\]]+)\]\]/g, '$1'); }
 /* 필기에서는 원래 어디가 빈칸이었는지 보여줘요.
    서식을 칠하면 일반 태그는 걷혀 나가기 때문에 HTML이 아니라 글자로 표시합니다. */
+/* 예전에는 'Q2. ' 같은 번호가 필기 HTML 안에 같이 저장됐어요.
+   이제 번호는 밖에서 그리므로, 저장된 것 앞에 붙어 있으면 떼어냅니다.
+   태그가 나오기 전의 맨 앞부분만 봅니다. */
+function stripSavedQNum(html){
+if(!html) return html;
+return String(html).replace(/^\s*Q[^.<]{0,10}\.\s*/, '');
+}
+
 function markBlanksForNotes(text){
 return String(text||'').replace(/\[\[([^\]]+)\]\]/g, function(m, a){ return '['+a.trim()+']'; });
 }
@@ -3082,6 +3090,8 @@ renderQ();
 function hasOwnNumber(qText){ return /^\s*\(?\d+\s*[.)\]]/.test(String(qText||'')); }
 function questionNumLabel(qq, qi){
 var custom = qq && qq.num!=null ? String(qq.num).trim() : '';
+/* '08.' 처럼 점까지 적어도 'Q08..' 이 되지 않게 끝의 점을 떼요 */
+custom = custom.replace(/[.\s]+$/, '');
 if(custom) return custom;
 if(hasOwnNumber(qq && qq.q)) return null;
 return String(qi+1);
@@ -3790,11 +3800,14 @@ var examRec = PROGRESS[kind==='reading'?'readingScores':'listeningScores'][item.
 item.questions.forEach(function(qq, qi){
 var qBlock=el('<div style="margin-bottom:16px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);"></div>');
 var qZoneKey='q-'+qi;
-var qTextDiv=el('<div style="font-weight:600;margin:0 0 8px;line-height:1.6;"></div>');
-qTextDiv.dataset.zoneKey=qZoneKey;
+var qHead=el('<div style="font-weight:600;margin:0 0 8px;line-height:1.6;"></div>');
 var numLab=questionNumLabel(qq, qi);
-qTextDiv.innerHTML = annotEntry.opts[qZoneKey] || ((numLab?('Q'+numLab+'. '):'')+escapeHtml(qq.q||''));
-qBlock.appendChild(qTextDiv);
+if(numLab) qHead.appendChild(el('<span style="color:var(--text-2);margin-right:4px;">Q'+escapeHtml(numLab)+'.</span>'));
+var qTextDiv=el('<span style="font-weight:600;line-height:1.6;"></span>');
+qTextDiv.dataset.zoneKey=qZoneKey;
+qTextDiv.innerHTML = stripSavedQNum(annotEntry.opts[qZoneKey]) || escapeHtml(qq.q||'');
+qHead.appendChild(qTextDiv);
+qBlock.appendChild(qHead);
 cleanupEmptySpans(qTextDiv);
 refreshBoxGroups(qTextDiv);
 zones.push(qTextDiv);
@@ -4150,7 +4163,47 @@ finishZoneEdit(zoneEl);
 });
 }
 
+/* 메모는 단어 아래에 떠 있어야 하는데, 저장된 HTML에서 자리잡기 스타일이
+   빠지면 글자 사이에 그대로 박혀 보여요. 그릴 때마다 되돌려 놓습니다. */
+function fixNoteLayout(zoneEl){
+Array.prototype.forEach.call(zoneEl.querySelectorAll('.annot-wrap'), function(wrap){
+wrap.style.position='relative';
+wrap.style.display='inline-block';
+var n=wrap.querySelector('.annot-notetext');
+if(!n) return;
+n.style.position='absolute';
+n.style.top='100%';
+n.style.left='50%';
+n.style.transform='translateX(-50%)';
+n.style.marginTop='4px';
+n.style.width='max-content';
+n.style.maxWidth='220px';
+n.style.whiteSpace='normal';
+n.style.textAlign='left';
+n.style.zIndex='5';
+n.style.minWidth='24px';
+n.style.outline='none';
+if(!n.style.fontSize) n.style.fontSize='13px';
+if(!n.style.lineHeight) n.style.lineHeight='1.35';
+if(!n.style.background) n.style.background='#fff';
+if(!n.style.padding) n.style.padding='3px 7px';
+if(!n.style.borderRadius) n.style.borderRadius='6px';
+if(!n.style.boxShadow) n.style.boxShadow='0 2px 6px rgba(0,0,0,0.14)';
+if(!n.style.borderStyle || n.style.borderStyle==='none'){
+n.style.border='1px solid '+(n.style.color||'#1a1a1a');
+}
+var mk=wrap.querySelector('.annot-notemark');
+if(mk){
+mk.style.fontSize='8px';
+mk.style.marginLeft='1px';
+mk.style.lineHeight='1';
+mk.style.userSelect='none';
+}
+});
+}
+
 function rebindNotes(zoneEl){
+fixNoteLayout(zoneEl);
 Array.prototype.forEach.call(zoneEl.querySelectorAll('.annot-notetext'), function(n){
 bindNoteEditing(n, zoneEl);
 });
