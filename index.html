@@ -3500,6 +3500,7 @@ editBtn.style.display='none';
 };
 panel.appendChild(editBtn);
 panel.appendChild(editHolder);
+panel.appendChild(buildShareControl(item, kind));
 
 var card=el('<div class="card"></div>');
 card.appendChild(el('<p class="muted" style="margin:0 0 2px;">'+taskHeader(info)+'</p>'));
@@ -6009,6 +6010,249 @@ again.appendChild(backBtn);
 panel.appendChild(again);
 }
 
+/* ================= 필기 공유 링크 =================
+   내 필기를 링크 하나로 보여줘요. 서버에 저장하지 않고 링크 안에 담습니다.
+   그래서 받은 사람은 로그인 없이 열 수 있고, 내 계정 데이터는 건드리지 않아요. */
+
+function b64uFromBytes(bytes){
+var bin='', i, CH=8192;
+for(i=0;i<bytes.length;i+=CH){
+bin+=String.fromCharCode.apply(null, bytes.subarray(i, i+CH));
+}
+return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function bytesFromB64u(str){
+var s=String(str).replace(/-/g,'+').replace(/_/g,'/');
+while(s.length%4) s+='=';
+var bin=atob(s), out=new Uint8Array(bin.length), i;
+for(i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+return out;
+}
+
+/* 필기 HTML은 같은 태그가 많이 반복돼서 압축이 아주 잘 들어요.
+   CompressionStream이 없는 브라우저면 압축 없이 담습니다. */
+function packShare(obj){
+var json=JSON.stringify(obj);
+if(!window.CompressionStream){
+return Promise.resolve('0'+b64uFromBytes(new TextEncoder().encode(json)));
+}
+var cs=new CompressionStream('gzip');
+return new Response(new Blob([json]).stream().pipeThrough(cs)).arrayBuffer()
+.then(function(buf){ return '1'+b64uFromBytes(new Uint8Array(buf)); });
+}
+function unpackShare(str){
+var mode=String(str).charAt(0), body=String(str).slice(1);
+var bytes;
+try{ bytes=bytesFromB64u(body); }catch(e){ return Promise.reject(new Error('링크가 손상됐어요.')); }
+if(mode==='0'){
+try{ return Promise.resolve(JSON.parse(new TextDecoder().decode(bytes))); }
+catch(e){ return Promise.reject(new Error('링크를 읽을 수 없어요.')); }
+}
+if(!window.DecompressionStream) return Promise.reject(new Error('이 브라우저에서는 링크를 열 수 없어요.'));
+var ds=new DecompressionStream('gzip');
+return new Response(new Blob([bytes]).stream().pipeThrough(ds)).text()
+.then(function(t){ return JSON.parse(t); });
+}
+
+/* 링크에 담을 내용 — 문제와 그 문제에 한 필기만. 다른 문제나 단어장은 안 들어가요. */
+function buildSharePayload(item, kind, includeNotes){
+var ann=(ANNOTATIONS[item.id]||{});
+return {
+v:1,
+k:kind,
+tt:item.taskType||'',
+t:item.title||'',
+p:(kind==='reading' ? (item.passage||'') : (item.script||'')),
+q:(item.questions||[]).map(function(x){
+return {num:x.num||'', q:x.q||'', opts:x.opts||[], answer:x.answer, explanation:x.explanation||''};
+}),
+a:{passage:ann.passage||'', opts:ann.opts||{}},
+n:(includeNotes ? (NOTES[item.id]||'') : '')
+};
+}
+
+function buildShareControl(item, kind){
+var wrap=el('<div style="margin-bottom:12px;"></div>');
+var btn=el('<button class="btn small">🔗 필기 공유 링크</button>');
+var box=el('<div style="display:none;margin-top:8px;padding:12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);"></div>');
+box.appendChild(el('<p class="muted" style="margin:0 0 8px;">이 문제와 여기에 한 필기를 링크 하나로 만들어요. 받은 사람은 로그인 없이 볼 수 있고, 고칠 수는 없어요.</p>'));
+
+var optRow=el('<label class="row" style="gap:6px;align-items:center;margin-bottom:8px;font-size:12.5px;color:var(--text-2);cursor:pointer;width:fit-content;"></label>');
+var cbNotes=document.createElement('input');
+cbNotes.type='checkbox';
+cbNotes.style.cursor='pointer';
+optRow.appendChild(cbNotes);
+optRow.appendChild(document.createTextNode('자유 메모장도 함께 보내기'));
+box.appendChild(optRow);
+
+var makeBtn=el('<button class="btn primary small">링크 만들기</button>');
+var out=el('<div style="display:none;margin-top:10px;"></div>');
+var urlBox=el('<textarea readonly style="min-height:70px;font-size:12px;"></textarea>');
+var copyBtn=el('<button class="btn small" style="margin-top:6px;">링크 복사</button>');
+var openBtn=el('<button class="btn small" style="margin-top:6px;margin-left:6px;">미리 보기</button>');
+var msg=el('<p class="muted" style="margin:8px 0 0;min-height:16px;"></p>');
+out.appendChild(urlBox);
+var outRow=el('<div class="row"></div>');
+outRow.appendChild(copyBtn); outRow.appendChild(openBtn);
+out.appendChild(outRow);
+box.appendChild(makeBtn); box.appendChild(out); box.appendChild(msg);
+
+makeBtn.onclick=function(){
+msg.textContent='만드는 중…'; msg.style.color='var(--text-3)';
+packShare(buildSharePayload(item, kind, cbNotes.checked)).then(function(packed){
+var base=location.origin+location.pathname;
+var url=base+'#share='+packed;
+urlBox.value=url;
+out.style.display='block';
+var kb=Math.round(url.length/1024*10)/10;
+if(url.length>12000){
+msg.textContent='링크가 길어요 ('+kb+'KB). 메신저에 따라 잘릴 수 있으니 붙여넣은 뒤 끝까지 들어갔는지 확인해주세요.';
+msg.style.color='var(--amber)';
+} else {
+msg.textContent='링크를 만들었어요 ('+kb+'KB).';
+msg.style.color='var(--green)';
+}
+}).catch(function(e){
+msg.textContent='링크를 만들지 못했어요: '+(e&&e.message?e.message:String(e));
+msg.style.color='var(--red)';
+});
+};
+copyBtn.onclick=function(){
+copyToClipboard(urlBox.value, function(ok){
+msg.textContent = ok ? '복사했어요. 붙여넣어 보내세요.' : '복사가 안 됐어요. 위 칸에서 직접 복사해주세요.';
+msg.style.color = ok ? 'var(--green)' : 'var(--red)';
+});
+};
+openBtn.onclick=function(){ window.open(urlBox.value, '_blank'); };
+
+btn.onclick=function(){
+var open=box.style.display==='none';
+box.style.display=open?'block':'none';
+btn.textContent=open?'🔗 공유 닫기':'🔗 필기 공유 링크';
+};
+wrap.appendChild(btn); wrap.appendChild(box);
+return wrap;
+}
+
+/* ---- 받은 링크를 여는 화면 (읽기 전용) ---- */
+function renderSharedView(data){
+document.body.innerHTML='';
+var wrap=el('<div class="wrap" style="max-width:1100px;margin:0 auto;padding:24px 18px 60px;"></div>');
+
+var head=el('<div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;flex-wrap:wrap;"></div>');
+var left=el('<div style="min-width:0;"></div>');
+left.appendChild(el('<p class="muted" style="margin:0 0 2px;font-size:12.5px;">공유받은 필기 · 읽기 전용</p>'));
+left.appendChild(el('<h2 style="margin:0;">'+escapeHtml(data.t||'제목 없음')+'</h2>'));
+head.appendChild(left);
+var mineBtn=el('<button class="btn small">내 학습 사이트 열기</button>');
+mineBtn.onclick=function(){ location.href=location.origin+location.pathname; };
+head.appendChild(mineBtn);
+wrap.appendChild(head);
+
+var split=el('<div class="analysis-split"></div>');
+var L=el('<div class="analysis-left"></div>');
+var R=el('<div class="analysis-right"></div>');
+split.appendChild(L); split.appendChild(R);
+
+var ann=data.a||{};
+if(data.p || ann.passage){
+var card=el('<div class="card"></div>');
+var pv=el('<div class="passage" style="max-height:calc(100vh - 190px);overflow-y:auto;"></div>');
+pv.innerHTML = ann.passage || escapeHtml(data.p||'');
+card.appendChild(pv);
+L.appendChild(card);
+}
+if(!L.childNodes.length) split.classList.add('single');
+
+(data.q||[]).forEach(function(qq, qi){
+var qBlock=el('<div class="card" style="margin-bottom:14px;"></div>');
+var qHead=el('<div style="font-weight:600;margin:0 0 8px;line-height:1.6;"></div>');
+var numLab=questionNumLabel(qq, qi);
+if(numLab) qHead.appendChild(el('<span style="color:var(--text-2);margin-right:4px;">Q'+escapeHtml(numLab)+'.</span>'));
+var qBody=(ann.opts&&ann.opts['q-'+qi]) ? stripSavedQNum(ann.opts['q-'+qi]) : escapeHtml(qq.q||'');
+if(numLab) qBody=stripLeadingDots(stripLeadingNumText(qBody));
+var qText=el('<span></span>');
+qText.innerHTML=qBody;
+qHead.appendChild(qText);
+qBlock.appendChild(qHead);
+
+(qq.opts||[]).forEach(function(op, oi){
+var key='opt-'+qi+'-'+oi;
+var row=el('<div class="optrow" style="align-items:flex-start;"></div>');
+row.appendChild(el('<span class="muted" style="margin-right:8px;flex:0 0 auto;">'+String.fromCharCode(65+oi)+'</span>'));
+var body=el('<div style="flex:1;min-width:0;"></div>');
+body.innerHTML=(ann.opts&&ann.opts[key]) ? ann.opts[key] : escapeHtml(op);
+row.appendChild(body);
+if(qq.answer===oi) row.appendChild(el('<span class="pill green" style="margin-left:8px;flex:0 0 auto;">정답</span>'));
+qBlock.appendChild(row);
+});
+
+if(qq.explanation || (ann.opts&&ann.opts['exp-'+qi])){
+var expWrap=el('<div style="margin-top:8px;"></div>');
+var expBtn=el('<button class="btn small">해설 보기</button>');
+var expBody=el('<div style="display:none;margin-top:6px;background:var(--accent-bg);border-radius:8px;padding:10px 12px;white-space:pre-line;"></div>');
+expBody.innerHTML=(ann.opts&&ann.opts['exp-'+qi]) ? ann.opts['exp-'+qi] : escapeHtml(qq.explanation||'');
+expBtn.onclick=function(){
+var open=expBody.style.display==='none';
+expBody.style.display=open?'block':'none';
+expBtn.textContent=open?'해설 닫기':'해설 보기';
+};
+expWrap.appendChild(expBtn); expWrap.appendChild(expBody);
+qBlock.appendChild(expWrap);
+}
+R.appendChild(qBlock);
+});
+wrap.appendChild(split);
+
+if(data.n){
+var nCard=el('<div class="card" style="margin-top:14px;"></div>');
+nCard.appendChild(el('<h3 style="margin:0 0 6px;font-size:15px;">메모장</h3>'));
+var nBody=el('<p style="margin:0;white-space:pre-line;"></p>');
+nBody.textContent=data.n;
+nCard.appendChild(nBody);
+wrap.appendChild(nCard);
+}
+
+wrap.appendChild(el('<p class="muted" style="margin-top:20px;font-size:12px;">이 화면은 공유받은 내용을 보여줄 뿐이라 고쳐도 저장되지 않아요. 원래 주인의 자료도 바뀌지 않습니다.</p>'));
+document.body.appendChild(wrap);
+
+/* 메모가 제자리에 뜨도록, 읽기 전용이므로 고치지는 못하게 */
+try{
+Array.prototype.forEach.call(document.querySelectorAll('.annot-notetext'), function(n){
+n.removeAttribute('contenteditable');
+n.removeAttribute('title');
+});
+fixNoteLayout(document.body);
+Array.prototype.forEach.call(document.querySelectorAll('.passage, .optrow'), function(z){
+refreshBoxGroups(z);
+});
+}catch(e){}
+}
+
+/* 링크로 들어온 경우엔 평소 화면 대신 공유 화면을 보여줘요 */
+function checkSharedLink(){
+var h=location.hash||'';
+if(h.indexOf('#share=')!==0) return false;
+var packed=h.slice(7);
+document.body.innerHTML='<div class="wrap" style="max-width:600px;margin:60px auto;padding:0 18px;"><p>공유된 필기를 여는 중…</p></div>';
+unpackShare(packed).then(function(data){
+if(!data || data.v!==1) throw new Error('알 수 없는 링크예요.');
+renderSharedView(data);
+}).catch(function(e){
+document.body.innerHTML='';
+var w=el('<div class="wrap" style="max-width:600px;margin:60px auto;padding:0 18px;"></div>');
+w.appendChild(el('<h2>링크를 열 수 없어요</h2>'));
+var p2=el('<p class="muted"></p>');
+p2.textContent=(e&&e.message?e.message:String(e))+' 링크가 중간에 잘렸을 수 있어요. 보낸 사람에게 다시 받아보세요.';
+w.appendChild(p2);
+var b=el('<button class="btn small">내 학습 사이트 열기</button>');
+b.onclick=function(){ location.href=location.origin+location.pathname; };
+w.appendChild(b);
+document.body.appendChild(w);
+});
+return true;
+}
+
 /* ================= PROGRESS ================= */
 /* ---- 진도 차트 공용 툴팁 ---- */
 var CHART_TIP=null;
@@ -6677,6 +6921,8 @@ if(e.key==='Escape' && drawer.classList.contains('open')) closeDrawer();
 window.openSettingsDrawer=openDrawer;
 })();
 
+/* 공유 링크로 들어왔으면 평소 화면 대신 그것만 보여줘요 */
+if(!checkSharedLink()){
 pruneDeleted();
 renderTabs();
 renderVocab();
@@ -6684,6 +6930,7 @@ renderReading();
 renderListening();
 renderWritingSpeaking();
 startCloudWatch();
+}
 </script>
 
 
