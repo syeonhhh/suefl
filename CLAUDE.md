@@ -76,6 +76,8 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `openToolDock` | 드래그가 안 먹힐 때 옆에 띄우는 수동 도구 창 |
 | `flattenExtracted` / `piecesToFragment` | 서식 span 평탄화. 중첩 span 깨짐 방지의 핵심 |
 | `navPush` / `navOpen` / `navBack` | 뒤로가기. `NAV` 스택과 history 깊이(`state.d`)를 짝지음. `TAB_VIEW`가 탭별 현재 화면을 기억해서 같은 화면이면 다시 안 그림 (풀던 문제 보존) |
+| `markCwAnswers` | 리딩 Task 1 필기에서 `[답]` 자리를 `<b class="cw-ans">`로 감싸 강조. 서식을 칠하면 태그가 걷혀 나가므로 **그릴 때마다 다시** 감쌈 (저장된 필기에도 적용) |
+| `buildCwAnswerList` | Task 1은 객관식이 없어 필기 화면 오른쪽이 비어서, 빈칸 정답 목록을 채워 넣음 |
 | `showConfirm` | 직접 만든 확인창 (alert/confirm 대신). 모의고사 중 뒤로가기가 이걸 씀 |
 | `mergeSyncPayload` | 클라우드 병합 (덮어쓰기 아님) |
 | `markDeleted` / `dropDeleted` | 삭제 툼스톤 |
