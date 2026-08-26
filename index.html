@@ -4047,6 +4047,28 @@ expBtn.textContent=open?'해설 닫기':'해설 보기';
 expWrap.appendChild(expBtn); expWrap.appendChild(expBody);
 qBlock.appendChild(expWrap);
 }
+/* 문제 하나만 골라서 필기를 지워요. 전체를 날리지 않아도 됩니다.
+   예전 버전에서 메모가 글자로 박혀버린 경우도 이걸로 정리돼요. */
+var qClearBtn=el('<button class="btn small danger" style="margin-top:8px;">이 문제 필기 지우기</button>');
+var qClearArmed=false, qClearTimer=null;
+qClearBtn.onclick=function(){
+if(!qClearArmed){
+qClearArmed=true;
+qClearBtn.textContent='정말 지우려면 한 번 더';
+qClearTimer=setTimeout(function(){ qClearArmed=false; qClearBtn.textContent='이 문제 필기 지우기'; }, 3000);
+return;
+}
+clearTimeout(qClearTimer);
+var e=getAnnotEntry(item.id);
+e.opts=e.opts||{};
+var pre='q-'+qi, optPre='opt-'+qi+'-', expKey='exp-'+qi;
+Object.keys(e.opts).forEach(function(k){
+if(k===pre || k===expKey || k.indexOf(optPre)===0) delete e.opts[k];
+});
+saveAnnotations();
+renderAnalysisView(item, kind);
+};
+qBlock.appendChild(qClearBtn);
 splitR.appendChild(qBlock);
 });
 }
@@ -6029,29 +6051,123 @@ for(i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
 return out;
 }
 
-/* 필기 HTML은 같은 태그가 많이 반복돼서 압축이 아주 잘 들어요.
-   CompressionStream이 없는 브라우저면 압축 없이 담습니다. */
-function packShare(obj){
-var json=JSON.stringify(obj);
-if(!window.CompressionStream){
-return Promise.resolve('0'+b64uFromBytes(new TextEncoder().encode(json)));
-}
+/* 필기 HTML은 같은 태그가 많이 반복돼서 압축이 아주 잘 들어요. */
+function gzipBytes(text){
+if(!window.CompressionStream) return Promise.resolve(null);
 var cs=new CompressionStream('gzip');
-return new Response(new Blob([json]).stream().pipeThrough(cs)).arrayBuffer()
-.then(function(buf){ return '1'+b64uFromBytes(new Uint8Array(buf)); });
+return new Response(new Blob([text]).stream().pipeThrough(cs)).arrayBuffer()
+.then(function(buf){ return new Uint8Array(buf); });
 }
-function unpackShare(str){
-var mode=String(str).charAt(0), body=String(str).slice(1);
-var bytes;
-try{ bytes=bytesFromB64u(body); }catch(e){ return Promise.reject(new Error('링크가 손상됐어요.')); }
-if(mode==='0'){
-try{ return Promise.resolve(JSON.parse(new TextDecoder().decode(bytes))); }
-catch(e){ return Promise.reject(new Error('링크를 읽을 수 없어요.')); }
-}
+function gunzipText(bytes){
 if(!window.DecompressionStream) return Promise.reject(new Error('이 브라우저에서는 링크를 열 수 없어요.'));
 var ds=new DecompressionStream('gzip');
-return new Response(new Blob([bytes]).stream().pipeThrough(ds)).text()
-.then(function(t){ return JSON.parse(t); });
+return new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
+}
+
+/* ---- 번호 걸기 ----
+   화면만 가리면 링크 안의 내용은 그대로 읽히니, 내용 자체를 잠급니다.
+   번호로 열쇠를 만들고(PBKDF2) AES-GCM으로 암호화해요.
+   번호가 틀리면 복호화 자체가 실패해서 아무것도 안 나옵니다. */
+var SHARE_PW_CHARS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   /* 헷갈리는 0·O·1·I·L 제외 */
+var SHARE_PW_LEN=7;
+var SHARE_ITER=250000;
+function shareCryptoOK(){ return !!(window.crypto && crypto.subtle && crypto.getRandomValues); }
+function makeSharePw(){
+var a=new Uint8Array(SHARE_PW_LEN);
+crypto.getRandomValues(a);
+var out='', i;
+for(i=0;i<SHARE_PW_LEN;i++) out+=SHARE_PW_CHARS.charAt(a[i]%SHARE_PW_CHARS.length);
+return out;
+}
+function normSharePw(v){ return String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+function deriveShareKey(pw, salt){
+var enc=new TextEncoder();
+return crypto.subtle.importKey('raw', enc.encode(pw), {name:'PBKDF2'}, false, ['deriveKey'])
+.then(function(base){
+return crypto.subtle.deriveKey(
+{name:'PBKDF2', salt:salt, iterations:SHARE_ITER, hash:'SHA-256'},
+base, {name:'AES-GCM', length:256}, false, ['encrypt','decrypt']);
+});
+}
+function encryptShare(bytes, pw){
+var salt=crypto.getRandomValues(new Uint8Array(16));
+var iv=crypto.getRandomValues(new Uint8Array(12));
+return deriveShareKey(pw, salt).then(function(key){
+return crypto.subtle.encrypt({name:'AES-GCM', iv:iv}, key, bytes);
+}).then(function(ct){
+var c=new Uint8Array(ct), out=new Uint8Array(28+c.length);
+out.set(salt,0); out.set(iv,16); out.set(c,28);
+return out;
+});
+}
+function decryptShare(bytes, pw){
+if(bytes.length<29) return Promise.reject(new Error('링크가 손상됐어요.'));
+var salt=bytes.slice(0,16), iv=bytes.slice(16,28), ct=bytes.slice(28);
+return deriveShareKey(pw, salt).then(function(key){
+return crypto.subtle.decrypt({name:'AES-GCM', iv:iv}, key, ct);
+}).then(function(buf){ return new Uint8Array(buf); });
+}
+
+function packShare(obj, pw){
+var json=JSON.stringify(obj);
+return gzipBytes(json).then(function(gz){
+if(!gz){
+/* 압축을 못 하는 브라우저 — 번호를 걸면 압축 없이 암호화 */
+var raw=new TextEncoder().encode(json);
+if(!pw) return '0'+b64uFromBytes(raw);
+return encryptShare(raw, pw).then(function(e){ return '3'+b64uFromBytes(e); });
+}
+if(!pw) return '1'+b64uFromBytes(gz);
+return encryptShare(gz, pw).then(function(e){ return '2'+b64uFromBytes(e); });
+});
+}
+/* ---- 짧은 링크 ----
+   내용을 통째로 주소에 넣으면 1KB가 넘어가서 메신저에서 잘려요.
+   로그인돼 있으면 Supabase의 shares 표에 넣고 짧은 주소만 넘깁니다.
+   표가 없거나 로그인 전이면 예전처럼 긴 주소로 되돌아가요. */
+var SHARE_ID_CHARS='abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function makeShareId(){
+var a=new Uint8Array(10);
+crypto.getRandomValues(a);
+var out='', i;
+for(i=0;i<a.length;i++) out+=SHARE_ID_CHARS.charAt(a[i]%SHARE_ID_CHARS.length);
+return out;
+}
+function shareUpload(packed){
+if(!sbLoggedIn()) return Promise.reject(new Error('로그인하면 짧은 주소로 만들 수 있어요.'));
+var id=makeShareId();
+return sbRequest('/rest/v1/shares', {
+method:'POST',
+headers:{'Prefer':'return=minimal'},
+body:JSON.stringify({id:id, payload:packed})
+}, true).then(function(){ return id; });
+}
+function shareDownload(id){
+return sbRequest('/rest/v1/shares?id=eq.'+encodeURIComponent(id)+'&select=payload', {}, false)
+.then(function(rows){
+if(!rows || !rows.length || !rows[0].payload) throw new Error('링크를 찾을 수 없어요. 지워졌거나 주소가 잘못됐을 수 있어요.');
+return rows[0].payload;
+});
+}
+
+function shareMode(str){ return String(str).charAt(0); }
+function shareNeedsPw(str){ var m=shareMode(str); return m==='2' || m==='3'; }
+function unpackShare(str, pw){
+var mode=shareMode(str), body=String(str).slice(1);
+var bytes;
+try{ bytes=bytesFromB64u(body); }catch(e){ return Promise.reject(new Error('링크가 손상됐어요.')); }
+function toObj(text){
+try{ return JSON.parse(text); }catch(e){ throw new Error('링크를 읽을 수 없어요.'); }
+}
+if(mode==='0') return Promise.resolve(toObj(new TextDecoder().decode(bytes)));
+if(mode==='1') return gunzipText(bytes).then(toObj);
+if(!shareCryptoOK()) return Promise.reject(new Error('이 브라우저에서는 번호가 걸린 링크를 열 수 없어요.'));
+return decryptShare(bytes, pw).then(function(plain){
+if(mode==='3') return toObj(new TextDecoder().decode(plain));
+return gunzipText(plain).then(toObj);
+}).catch(function(){
+throw new Error('번호가 맞지 않아요.');
+});
 }
 
 /* 링크에 담을 내용 — 문제와 그 문제에 한 필기만. 다른 문제나 단어장은 안 들어가요. */
@@ -6085,6 +6201,41 @@ optRow.appendChild(cbNotes);
 optRow.appendChild(document.createTextNode('자유 메모장도 함께 보내기'));
 box.appendChild(optRow);
 
+var pwRow=el('<label class="row" style="gap:6px;align-items:center;margin-bottom:8px;font-size:12.5px;color:var(--text-2);cursor:pointer;width:fit-content;"></label>');
+var cbPw=document.createElement('input');
+cbPw.type='checkbox';
+cbPw.style.cursor='pointer';
+pwRow.appendChild(cbPw);
+pwRow.appendChild(document.createTextNode('번호 걸기 (7자리) — 번호를 아는 사람만 볼 수 있어요'));
+box.appendChild(pwRow);
+if(!shareCryptoOK()){
+cbPw.disabled=true;
+box.appendChild(el('<p class="muted" style="margin:0 0 8px;font-size:12px;color:var(--amber);">이 환경에서는 번호를 걸 수 없어요. 실제 사이트 주소(https)에서 열어주세요.</p>'));
+}
+var pwShow=el('<div style="display:none;margin:0 0 10px;padding:10px 12px;border:1px dashed var(--border-strong);border-radius:8px;"></div>');
+pwShow.appendChild(el('<p class="muted" style="margin:0 0 6px;font-size:12px;">이 번호를 <strong>링크와 따로</strong> 알려주세요. 링크만으로는 못 봅니다.</p>'));
+var pwText=el('<div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:22px;font-weight:700;letter-spacing:.18em;"></div>');
+pwShow.appendChild(pwText);
+var pwBtns=el('<div class="row" style="margin-top:6px;gap:6px;"></div>');
+var pwNew=el('<button class="btn small">다른 번호로</button>');
+var pwCopy=el('<button class="btn small">번호 복사</button>');
+pwBtns.appendChild(pwNew); pwBtns.appendChild(pwCopy);
+pwShow.appendChild(pwBtns);
+box.appendChild(pwShow);
+var curPw='';
+function newPw(){ curPw=makeSharePw(); pwText.textContent=curPw.slice(0,4)+' '+curPw.slice(4); }
+cbPw.onchange=function(){
+if(cbPw.checked){ newPw(); pwShow.style.display='block'; }
+else { curPw=''; pwShow.style.display='none'; }
+};
+pwNew.onclick=function(){ newPw(); };
+pwCopy.onclick=function(){
+copyToClipboard(curPw, function(ok){
+msg.textContent = ok ? '번호를 복사했어요.' : '복사가 안 됐어요. 위 번호를 직접 적어주세요.';
+msg.style.color = ok ? 'var(--green)' : 'var(--red)';
+});
+};
+
 var makeBtn=el('<button class="btn primary small">링크 만들기</button>');
 var out=el('<div style="display:none;margin-top:10px;"></div>');
 var urlBox=el('<textarea readonly style="min-height:70px;font-size:12px;"></textarea>');
@@ -6099,18 +6250,25 @@ box.appendChild(makeBtn); box.appendChild(out); box.appendChild(msg);
 
 makeBtn.onclick=function(){
 msg.textContent='만드는 중…'; msg.style.color='var(--text-3)';
-packShare(buildSharePayload(item, kind, cbNotes.checked)).then(function(packed){
 var base=location.origin+location.pathname;
-var url=base+'#share='+packed;
-urlBox.value=url;
+packShare(buildSharePayload(item, kind, cbNotes.checked), curPw).then(function(packed){
+/* 먼저 짧은 주소를 시도하고, 안 되면 긴 주소로 */
+return shareUpload(packed).then(function(id){
+return {url:base+'#s='+id, short:true};
+}).catch(function(err){
+return {url:base+'#share='+packed, short:false, why:(err&&err.message)||''};
+});
+}).then(function(r){
+urlBox.value=r.url;
 out.style.display='block';
-var kb=Math.round(url.length/1024*10)/10;
-if(url.length>12000){
-msg.textContent='링크가 길어요 ('+kb+'KB). 메신저에 따라 잘릴 수 있으니 붙여넣은 뒤 끝까지 들어갔는지 확인해주세요.';
-msg.style.color='var(--amber)';
-} else {
-msg.textContent='링크를 만들었어요 ('+kb+'KB).';
+var extra = curPw ? ' 번호를 따로 알려주는 걸 잊지 마세요.' : '';
+if(r.short){
+msg.textContent='짧은 링크를 만들었어요 ('+r.url.length+'자).'+extra;
 msg.style.color='var(--green)';
+} else {
+var kb=Math.round(r.url.length/1024*10)/10;
+msg.textContent='긴 링크로 만들었어요 ('+kb+'KB). '+(r.why||'')+' 메신저에서 잘릴 수 있어요.'+extra;
+msg.style.color='var(--amber)';
 }
 }).catch(function(e){
 msg.textContent='링크를 만들지 못했어요: '+(e&&e.message?e.message:String(e));
@@ -6230,25 +6388,68 @@ refreshBoxGroups(z);
 }
 
 /* 링크로 들어온 경우엔 평소 화면 대신 공유 화면을 보여줘요 */
-function checkSharedLink(){
-var h=location.hash||'';
-if(h.indexOf('#share=')!==0) return false;
-var packed=h.slice(7);
-document.body.innerHTML='<div class="wrap" style="max-width:600px;margin:60px auto;padding:0 18px;"><p>공유된 필기를 여는 중…</p></div>';
-unpackShare(packed).then(function(data){
-if(!data || data.v!==1) throw new Error('알 수 없는 링크예요.');
-renderSharedView(data);
-}).catch(function(e){
+function shareError(text){
 document.body.innerHTML='';
 var w=el('<div class="wrap" style="max-width:600px;margin:60px auto;padding:0 18px;"></div>');
 w.appendChild(el('<h2>링크를 열 수 없어요</h2>'));
 var p2=el('<p class="muted"></p>');
-p2.textContent=(e&&e.message?e.message:String(e))+' 링크가 중간에 잘렸을 수 있어요. 보낸 사람에게 다시 받아보세요.';
+p2.textContent=text;
 w.appendChild(p2);
 var b=el('<button class="btn small">내 학습 사이트 열기</button>');
 b.onclick=function(){ location.href=location.origin+location.pathname; };
 w.appendChild(b);
 document.body.appendChild(w);
+}
+/* 번호가 걸린 링크는 번호를 받아서 풀어요 */
+function askSharePw(packed){
+document.body.innerHTML='';
+var w=el('<div class="wrap" style="max-width:460px;margin:70px auto;padding:0 18px;"></div>');
+w.appendChild(el('<h2 style="margin:0 0 6px;">🔒 번호가 걸린 필기예요</h2>'));
+w.appendChild(el('<p class="muted" style="margin:0 0 14px;">보낸 사람에게 받은 7자리 번호를 넣어주세요.</p>'));
+var inp=el('<input type="text" placeholder="예: ABCD EFG" autocapitalize="characters" autocomplete="off" spellcheck="false" style="width:100%;font-size:20px;letter-spacing:.14em;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace;">');
+w.appendChild(inp);
+var msg=el('<p class="muted" style="margin:8px 0 0;min-height:18px;"></p>');
+var btn=el('<button class="btn primary" style="margin-top:10px;width:100%;">열기</button>');
+w.appendChild(btn); w.appendChild(msg);
+document.body.appendChild(w);
+setTimeout(function(){ try{ inp.focus(); }catch(e){} }, 0);
+function tryOpen(){
+var pw=normSharePw(inp.value);
+if(pw.length!==SHARE_PW_LEN){ msg.textContent='7자리를 넣어주세요.'; msg.style.color='var(--red)'; return; }
+btn.disabled=true;
+msg.textContent='여는 중…'; msg.style.color='var(--text-3)';
+unpackShare(packed, pw).then(function(data){
+if(!data || data.v!==1) throw new Error('알 수 없는 링크예요.');
+renderSharedView(data);
+}).catch(function(e){
+btn.disabled=false;
+msg.textContent=(e&&e.message?e.message:String(e));
+msg.style.color='var(--red)';
+});
+}
+btn.onclick=tryOpen;
+inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); tryOpen(); } });
+}
+function openSharePacked(packed){
+if(shareNeedsPw(packed)){ askSharePw(packed); return; }
+unpackShare(packed).then(function(data){
+if(!data || data.v!==1) throw new Error('알 수 없는 링크예요.');
+renderSharedView(data);
+}).catch(function(e){
+shareError((e&&e.message?e.message:String(e))+' 링크가 중간에 잘렸을 수 있어요. 보낸 사람에게 다시 받아보세요.');
+});
+}
+function checkSharedLink(){
+var h=location.hash||'';
+var isShort = h.indexOf('#s=')===0;
+var isLong  = h.indexOf('#share=')===0;
+if(!isShort && !isLong) return false;
+document.body.innerHTML='<div class="wrap" style="max-width:600px;margin:60px auto;padding:0 18px;"><p>공유된 필기를 여는 중…</p></div>';
+if(isLong){ openSharePacked(h.slice(7)); return true; }
+shareDownload(h.slice(3)).then(function(packed){
+openSharePacked(packed);
+}).catch(function(e){
+shareError((e&&e.message?e.message:String(e)));
 });
 return true;
 }
