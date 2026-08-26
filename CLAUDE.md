@@ -76,6 +76,10 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `openToolDock` | 드래그가 안 먹힐 때 옆에 띄우는 수동 도구 창 |
 | `flattenExtracted` / `piecesToFragment` | 서식 span 평탄화. 중첩 span 깨짐 방지의 핵심 |
 | `navPush` / `navOpen` / `navBack` | 뒤로가기. `NAV` 스택과 history 깊이(`state.d`)를 짝지음. `TAB_VIEW`가 탭별 현재 화면을 기억해서 같은 화면이면 다시 안 그림 (풀던 문제 보존) |
+| `openModal` / `closeModal` | 팝업 하나짜리 모달. `MODAL_HANDLE.onClose`로 정리 콜백 등록 |
+| `openVocabStudy` | 플래시카드 팝업. 앞면=단어, 뒷면=뜻·유의어·예문. 우측 상단 ☆로 모르는 단어 표시 |
+| `openVocabList` / `buildVocabListBody` | 전체/표시된 단어 목록 팝업. 목록에서도 ☆를 끄고 켤 수 있음 |
+| `markedVocab` | `v.marked`가 켜진 단어들. "표시된 단어 학습"이 이걸 씀 |
 | `markCwAnswers` | 리딩 Task 1 필기에서 `[답]` 자리를 `<b class="cw-ans">`로 감싸 강조. 서식을 칠하면 태그가 걷혀 나가므로 **그릴 때마다 다시** 감쌈 (저장된 필기에도 적용) |
 | `buildCwAnswerList` | Task 1은 객관식이 없어 필기 화면 오른쪽이 비어서, 빈칸 정답 목록을 채워 넣음 |
 | `showConfirm` | 직접 만든 확인창 (alert/confirm 대신). 모의고사 중 뒤로가기가 이걸 씀 |
@@ -119,7 +123,7 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 
 | 키 | 내용 |
 |---|---|
-| `toeflData` | 단어·리딩·리스닝·라이팅·스피킹 문제, 철자 연습(`cwWords`), 전치사 연습(`prepWords`) |
+| `toeflData` | 단어·리딩·리스닝·라이팅·스피킹 문제, 철자 연습(`cwWords`), 전치사 연습(`prepWords`). 단어의 `marked`가 「표시된 단어」 |
 | `toeflProgress` | 진도. `{readingScores:{id:{answers:[{selected,correct}]}}, ...}` |
 | `toeflNotes` | 자유 메모장 |
 | `toeflAnnotations` | 필기(형광펜·메모) HTML |

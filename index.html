@@ -204,6 +204,25 @@ button.btn.iconbtn{flex:0 0 auto;padding:10px 12px;border-radius:var(--radius-sm
 .confirm-overlay{position:fixed;inset:0;background:rgba(28,24,19,0.42);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;}
 .confirm-box{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 44px rgba(28,24,19,0.22);padding:20px;width:100%;max-width:340px;}
 .confirm-box p{margin:0 0 16px;line-height:1.55;}
+/* 팝업(모달) — 단어 목록·단어 학습이 여기에 떠요 */
+.modal-overlay{position:fixed;inset:0;background:rgba(28,24,19,0.42);z-index:75;display:flex;align-items:center;justify-content:center;padding:16px;}
+.modal-box{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 14px 44px rgba(28,24,19,0.22);width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column;}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);flex:0 0 auto;}
+.modal-head h3{margin:0;font-size:16px;}
+.modal-body{padding:16px;overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1 1 auto;}
+.modal-body .listitem:last-child{margin-bottom:0;}
+/* 모르는 단어 표시 별 */
+.mark-star{background:transparent;border:none;box-shadow:none;padding:2px 6px;font-size:21px;line-height:1;color:var(--text-3);cursor:pointer;flex:0 0 auto;transition:transform .12s ease,color .15s ease;}
+.mark-star:hover{transform:scale(1.15);color:var(--amber);}
+.mark-star.on{color:var(--amber);}
+.fc-star{position:absolute;top:6px;right:9px;font-size:26px;color:var(--fc-sub);opacity:.6;}
+.fc-star:hover{opacity:1;}
+.fc-star.on{color:var(--amber);opacity:1;}
+.fc-face{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;width:100%;}
+.fc-face>*{animation:faceIn .22s ease both;}
+button.btn:disabled{opacity:.42;cursor:default;}
+button.btn:disabled:hover{background:var(--card);box-shadow:var(--shadow-1);transform:none;}
+button.btn.primary:disabled:hover{background:var(--accent);}
 /* 리딩 Task 1 필기 — 빈칸이던 자리(정답) 강조 */
 .cw-ans{font-weight:700;color:var(--terra);background:var(--terra-bg);border-radius:4px;padding:0 3px;-webkit-box-decoration-break:clone;box-decoration-break:clone;}
 @media (max-width:640px){
@@ -1964,6 +1983,40 @@ NAV_BACK=false;
 window.scrollTo(0,0);
 }
 }
+/* 팝업(모달). 한 번에 하나만 떠요 — 새로 열면 앞의 것은 닫힙니다. */
+var MODAL_EL=null, MODAL_HANDLE=null;
+function closeModal(){
+if(MODAL_HANDLE && MODAL_HANDLE.onClose){
+var f=MODAL_HANDLE.onClose; MODAL_HANDLE.onClose=null;
+try{ f(); }catch(e){}
+}
+if(MODAL_EL && MODAL_EL.parentNode) MODAL_EL.parentNode.removeChild(MODAL_EL);
+MODAL_EL=null; MODAL_HANDLE=null;
+}
+function openModal(title, opts){
+closeModal();
+opts=opts||{};
+var ov=el('<div class="modal-overlay"></div>');
+var box=el('<div class="modal-box"></div>');
+if(opts.wide) box.style.maxWidth='640px';
+var head=el('<div class="modal-head"></div>');
+head.appendChild(el('<h3>'+title+'</h3>'));
+var x=el('<button class="btn small" aria-label="닫기">✕</button>');
+x.onclick=closeModal;
+head.appendChild(x);
+box.appendChild(head);
+var body=el('<div class="modal-body"></div>');
+box.appendChild(body);
+ov.appendChild(box);
+ov.onclick=function(e){ if(e.target===ov) closeModal(); };
+document.body.appendChild(ov);
+MODAL_EL=ov;
+MODAL_HANDLE={body:body, overlay:ov, onClose:null};
+return MODAL_HANDLE;
+}
+/* 확인창이 위에 떠 있으면 그걸 먼저 닫아요 */
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && MODAL_EL && !CONFIRM_EL) closeModal(); });
+
 /* alert/confirm은 Cowork 아티팩트에서 막혀서 직접 만든 확인창이에요 */
 var CONFIRM_EL=null;
 function hideConfirm(){
@@ -2107,34 +2160,38 @@ var panelsEl=document.getElementById('panels');
 TABS.forEach(function(t){ var p=document.createElement('div'); p.className='panel'+(t.id==='vocab'?' active':''); p.id='panel-'+t.id; panelsEl.appendChild(p); });
 
 /* ================= VOCAB ================= */
-var vocabIdx=0, vocabFlipped=false;
-var VOCAB_LIST_OPEN=false;
+/* 단어 학습과 단어 목록은 팝업으로 띄워요. 탭에는 버튼만 둡니다. */
+function markedVocab(){ return DATA.vocab.filter(function(v){ return !!v.marked; }); }
 function renderVocab(){
 var panel=document.getElementById('panel-vocab'); panel.innerHTML='';
 panel.appendChild(buildAddPanel('vocab','단어', buildVocabForm));
-if(DATA.vocab.length>0){
+
+var marked=markedVocab();
 var card=el('<div class="card"></div>');
-card.appendChild(el('<h2>단어 카드 ('+(vocabIdx+1)+' / '+DATA.vocab.length+')</h2>'));
-var fc=el('<div class="flashcard"></div>');
-renderFlashcardFace(fc);
-fc.onclick=function(){
-if(fc.classList.contains('flipping')) return;
-fc.classList.add('flipping');
-setTimeout(function(){ vocabFlipped=!vocabFlipped; renderFlashcardFace(fc); }, 160);
-setTimeout(function(){ fc.classList.remove('flipping'); }, 330);
-};
-card.appendChild(fc);
-var row=el('<div class="row" style="margin-top:12px;"></div>');
-var prev=el('<button class="btn small">이전</button>');
-prev.onclick=function(){ vocabIdx=(vocabIdx-1+DATA.vocab.length)%DATA.vocab.length; vocabFlipped=false; renderVocab(); };
-var next=el('<button class="btn small">다음</button>');
-next.onclick=function(){ vocabIdx=(vocabIdx+1)%DATA.vocab.length; vocabFlipped=false; renderVocab(); };
-var rnd=el('<button class="btn small">랜덤</button>');
-rnd.onclick=function(){ vocabIdx=Math.floor(Math.random()*DATA.vocab.length); vocabFlipped=false; renderVocab(); };
-row.appendChild(prev); row.appendChild(next); row.appendChild(rnd);
-card.appendChild(row);
+card.appendChild(el('<h2>단어 학습</h2>'));
+if(DATA.vocab.length===0) card.appendChild(el('<p class="muted">등록된 단어가 없어요. 위에서 추가해보세요.</p>'));
+else card.appendChild(el('<p class="muted">카드를 누르면 뜻이 보여요. 잘 모르겠는 단어는 카드 오른쪽 위 ☆를 눌러 표시해두세요.</p>'));
+
+var studyRow=el('<div class="row" style="margin-top:12px;"></div>');
+var studyAll=el('<button class="btn primary">단어 학습 ('+DATA.vocab.length+')</button>');
+studyAll.disabled=DATA.vocab.length===0;
+studyAll.onclick=function(){ openVocabStudy(DATA.vocab.slice(), '전체 단어'); };
+var studyMarked=el('<button class="btn">★ 표시된 단어 학습 ('+marked.length+')</button>');
+studyMarked.disabled=marked.length===0;
+studyMarked.onclick=function(){ openVocabStudy(markedVocab(), '표시된 단어'); };
+studyRow.appendChild(studyAll); studyRow.appendChild(studyMarked);
+card.appendChild(studyRow);
+
+var listRow=el('<div class="row" style="margin-top:10px;"></div>');
+var listAll=el('<button class="btn small">전체 단어 ('+DATA.vocab.length+')</button>');
+listAll.onclick=function(){ openVocabList('all'); };
+var listMarked=el('<button class="btn small">표시된 단어 ('+marked.length+')</button>');
+listMarked.onclick=function(){ openVocabList('marked'); };
+listRow.appendChild(listAll); listRow.appendChild(listMarked);
+card.appendChild(listRow);
 panel.appendChild(card);
 
+if(DATA.vocab.length>0){
 if(DATA.vocab.length>=4){
 var quizCard=el('<div class="card"><h2>단어 퀴즈</h2><p class="muted">등록된 단어 중 최대 10문제를 무작위로 출제해요.</p></div>');
 var startBtn=el('<button class="btn primary">퀴즈 시작</button>');
@@ -2146,36 +2203,18 @@ panel.appendChild(quizCard);
 } else {
 panel.appendChild(el('<div class="card"><p class="muted">퀴즈를 풀려면 단어가 4개 이상 필요해요.</p></div>'));
 }
+}
 panel.appendChild(el('<div id="vocab-quiz-area"></div>'));
-} else {
-panel.appendChild(el('<div class="card"><p class="muted">등록된 단어가 없어요. 아래에서 추가해보세요.</p></div>'));
+panel.appendChild(buildPrepDrill(renderVocab));
 }
 
-/* 목록이 길어서 평소엔 접어둬요. 버튼을 누르면 펼쳐집니다. */
-var listCard=el('<div class="card"></div>');
-var listHead=el('<div class="row addhead" style="justify-content:space-between;"></div>');
-listHead.appendChild(el('<h3 style="margin:0;">전체 단어 <span class="muted" style="font-weight:400;font-size:13px;">'+DATA.vocab.length+'개</span></h3>'));
-var listToggle=el('<button class="btn small" tabindex="-1">'+(VOCAB_LIST_OPEN?'닫기':'열기')+'</button>');
-listHead.appendChild(listToggle);
-listHead.setAttribute('role','button');
-listHead.setAttribute('tabindex','0');
-listHead.setAttribute('aria-expanded', VOCAB_LIST_OPEN?'true':'false');
-listCard.appendChild(listHead);
-var listBody=el('<div style="margin-top:10px;'+(VOCAB_LIST_OPEN?'':'display:none;')+'"></div>');
-listCard.appendChild(listBody);
-function toggleVocabList(){
-VOCAB_LIST_OPEN=!VOCAB_LIST_OPEN;
-listBody.style.display=VOCAB_LIST_OPEN?'block':'none';
-listToggle.textContent=VOCAB_LIST_OPEN?'닫기':'열기';
-listHead.setAttribute('aria-expanded', VOCAB_LIST_OPEN?'true':'false');
-}
-listHead.onclick=toggleVocabList;
-listHead.addEventListener('keydown', function(e){
-if(e.key==='Enter' || e.key===' ' || e.key==='Spacebar'){ e.preventDefault(); toggleVocabList(); }
-});
-DATA.vocab.forEach(function(v){
+/* 단어 하나짜리 줄 — 전체 목록·표시된 목록이 같이 씁니다 */
+function buildVocabListBody(words, emptyMsg, rerender){
+var wrap=el('<div></div>');
+if(!words.length){ wrap.appendChild(el('<p class="muted" style="margin:0;">'+emptyMsg+'</p>')); return wrap; }
+words.forEach(function(v){
 var item=el('<div class="listitem" style="align-items:flex-start;"></div>');
-var infoWrap=el('<div style="flex:1;"></div>');
+var infoWrap=el('<div style="flex:1;min-width:0;"></div>');
 var synLine = v.synonyms ? '<br><span class="muted">유의어: '+escapeHtml(v.synonyms)+'</span>' : '';
 var exLine = v.example ? '<br><span class="muted" style="font-style:italic;">"'+escapeHtml(v.example)+'"</span>' : '';
 infoWrap.appendChild(el('<div><strong>'+escapeHtml(v.word)+'</strong> <span class="muted">'+escapeHtml(v.pos||'')+'</span><br><span class="muted">'+escapeHtml(v.def)+'</span>'+synLine+exLine+'</div>'));
@@ -2183,25 +2222,122 @@ if(v.image){ var thumb=el('<img style="max-width:100px;max-height:70px;border-ra
 var actionsRow=el('<div class="row" style="margin-top:6px;"></div>');
 infoWrap.appendChild(actionsRow);
 item.appendChild(infoWrap);
-var imgCtl=inlineImageToggle(actionsRow, v, 'image', renderVocab, {external:true});
+/* 목록에서도 표시를 켜고 끌 수 있게 */
+var star=el('<button class="mark-star" type="button"></button>');
+function paintStar(){ star.textContent=v.marked?'★':'☆'; star.classList.toggle('on', !!v.marked); star.title=v.marked?'표시 해제':'모르는 단어로 표시'; }
+paintStar();
+star.onclick=function(){ v.marked=!v.marked; saveData(); paintStar(); renderVocab(); if(rerender) rerender(); };
+item.appendChild(star);
+var after=function(){ renderVocab(); if(rerender) rerender(); };
+var imgCtl=inlineImageToggle(actionsRow, v, 'image', after, {external:true});
 var editBox=null;
 function toggleEditBox(){
 if(editBox){ editBox.remove(); editBox=null; return; }
-editBox=buildVocabEditForm(v, renderVocab);
+editBox=buildVocabEditForm(v, after);
 actionsRow.appendChild(editBox);
 }
 item.appendChild(kebabMenu([
 {label:'내용 수정', onClick:toggleEditBox},
 {label:v.image?'사진 변경/삭제':'사진 추가', onClick:function(){ imgCtl.open(); }},
-{label:'삭제', danger:true, onClick:function(){ markDeleted(v.id); DATA.vocab=DATA.vocab.filter(function(x){return x.id!==v.id;}); saveData(); vocabIdx=0; renderVocab(); }}
+{label:'삭제', danger:true, onClick:function(){ markDeleted(v.id); DATA.vocab=DATA.vocab.filter(function(x){return x.id!==v.id;}); saveData(); after(); }}
 ]));
-listBody.appendChild(item);
+wrap.appendChild(item);
 });
-if(DATA.vocab.length===0) listBody.appendChild(el('<p class="muted" style="margin:0;">아직 등록된 단어가 없어요.</p>'));
-panel.appendChild(buildPrepDrill(renderVocab));
-panel.appendChild(listCard);
-
+return wrap;
 }
+
+function openVocabList(mode){
+var isMarked = mode==='marked';
+var m=openModal(isMarked?'표시된 단어':'전체 단어', {wide:true});
+function draw(){
+var words = isMarked ? markedVocab() : DATA.vocab.slice();
+m.body.innerHTML='';
+var head=el('<div class="row" style="justify-content:space-between;margin-bottom:12px;"></div>');
+head.appendChild(el('<span class="muted">'+words.length+'개</span>'));
+var headBtns=el('<div class="row" style="gap:6px;"></div>');
+if(words.length){
+var studyBtn=el('<button class="btn small">이 목록으로 학습</button>');
+studyBtn.onclick=function(){ openVocabStudy(words, isMarked?'표시된 단어':'전체 단어'); };
+headBtns.appendChild(studyBtn);
+}
+if(isMarked && words.length){
+var clr=el('<button class="btn small danger">표시 전체 해제</button>');
+var armed=false, armTimer=null;
+clr.onclick=function(){
+if(!armed){ armed=true; clr.textContent='정말 해제하려면 한 번 더'; armTimer=setTimeout(function(){ armed=false; clr.textContent='표시 전체 해제'; },3000); return; }
+clearTimeout(armTimer);
+DATA.vocab.forEach(function(v){ v.marked=false; });
+saveData(); renderVocab(); draw();
+};
+headBtns.appendChild(clr);
+}
+head.appendChild(headBtns);
+m.body.appendChild(head);
+m.body.appendChild(buildVocabListBody(words,
+  isMarked?'아직 표시해둔 단어가 없어요. 단어 학습 중에 카드 오른쪽 위 ☆를 눌러보세요.':'아직 등록된 단어가 없어요.',
+  draw));
+}
+draw();
+}
+
+/* 플래시카드 팝업 */
+function openVocabStudy(words, label){
+if(!words || !words.length) return;
+var idx=0, flipped=false;
+var m=openModal('단어 학습 · '+escapeHtml(label));
+var counter=el('<p class="muted" style="margin:0 0 10px;text-align:center;"></p>');
+var fc=el('<div class="flashcard" style="position:relative;"></div>');
+var face=el('<div class="fc-face"></div>');
+var star=el('<button class="mark-star fc-star" type="button"></button>');
+fc.appendChild(star); fc.appendChild(face);
+var row=el('<div class="row" style="margin-top:12px;justify-content:center;"></div>');
+var prev=el('<button class="btn small">이전</button>');
+var next=el('<button class="btn small">다음</button>');
+var rnd=el('<button class="btn small">랜덤</button>');
+row.appendChild(prev); row.appendChild(next); row.appendChild(rnd);
+m.body.appendChild(counter); m.body.appendChild(fc); m.body.appendChild(row);
+m.body.appendChild(el('<p class="muted" style="margin:10px 0 0;text-align:center;font-size:12px;">카드를 누르면 뒤집혀요. ← → 이동, 스페이스로 뒤집기.</p>'));
+
+function draw(){
+var v=words[idx];
+counter.textContent=(idx+1)+' / '+words.length+(v.marked?'  ·  ★ 표시됨':'');
+face.innerHTML=flashcardFaceHtml(v, flipped);
+star.textContent=v.marked?'★':'☆';
+star.classList.toggle('on', !!v.marked);
+star.title=v.marked?'표시 해제':'모르는 단어로 표시';
+}
+function go(n){ idx=(n+words.length)%words.length; flipped=false; draw(); }
+function flip(){
+if(fc.classList.contains('flipping')) return;
+fc.classList.add('flipping');
+setTimeout(function(){ flipped=!flipped; draw(); }, 160);
+setTimeout(function(){ fc.classList.remove('flipping'); }, 330);
+}
+fc.onclick=flip;
+/* 별을 눌렀을 때 카드가 같이 뒤집히면 안 돼요 */
+star.onclick=function(e){
+e.stopPropagation();
+var v=words[idx]; v.marked=!v.marked;
+saveData(); draw(); renderVocab();
+};
+prev.onclick=function(){ go(idx-1); };
+next.onclick=function(){ go(idx+1); };
+rnd.onclick=function(){
+if(words.length<2) return;
+var n=idx; while(n===idx) n=Math.floor(Math.random()*words.length);
+go(n);
+};
+var onKey=function(e){
+if(CONFIRM_EL) return;
+if(e.key==='ArrowLeft'){ e.preventDefault(); go(idx-1); }
+else if(e.key==='ArrowRight'){ e.preventDefault(); go(idx+1); }
+else if(e.key===' ' || e.key==='Spacebar' || e.key==='Enter'){ e.preventDefault(); flip(); }
+};
+document.addEventListener('keydown', onKey);
+m.onClose=function(){ document.removeEventListener('keydown', onKey); };
+draw();
+}
+
 function buildVocabForm(){
 var formCard=el('<div></div>');
 var wIn=el('<input type="text" placeholder="단어 (word)" style="width:100%;margin-bottom:6px;">');
@@ -2282,19 +2418,18 @@ btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
 box.appendChild(btnRow);
 return box;
 }
-function renderFlashcardFace(fc){
-var v=DATA.vocab[vocabIdx]; if(!v) return;
+/* 앞면은 단어만, 뒷면은 뜻·유의어·예문 */
+function flashcardFaceHtml(v, flipped){
+if(!v) return '';
 var imgHtml = v.image ? '<img src="'+v.image+'" style="max-width:220px;max-height:140px;border-radius:8px;margin-bottom:4px;">' : '';
-if(!vocabFlipped){ fc.innerHTML=imgHtml+'<div class="word">'+escapeHtml(v.word)+'</div><div class="pos">'+escapeHtml(v.pos||'')+'</div><div style="font-size:12px;color:var(--fc-sub);">클릭해서 뜻 보기</div>'; }
-else{
+if(!flipped) return imgHtml+'<div class="word">'+escapeHtml(v.word)+'</div><div class="pos">'+escapeHtml(v.pos||'')+'</div><div style="font-size:12px;color:var(--fc-sub);">클릭해서 뜻 보기</div>';
 var synHtml='';
 if(v.synonyms){
 var chips=v.synonyms.split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(s){return '<span class="syn-chip">'+escapeHtml(s)+'</span>';}).join('');
 if(chips) synHtml='<div class="synrow"><span class="synlabel">유의어</span>'+chips+'</div>';
 }
 var exHtml = v.example ? '<div class="ex">"'+escapeHtml(v.example)+'"</div>' : '';
-fc.innerHTML=imgHtml+'<div class="word">'+escapeHtml(v.word)+'</div><div class="pos">'+escapeHtml(v.pos||'')+'</div><div class="def">'+escapeHtml(v.def)+'</div>'+synHtml+exHtml;
-}
+return imgHtml+'<div class="word">'+escapeHtml(v.word)+'</div><div class="pos">'+escapeHtml(v.pos||'')+'</div><div class="def">'+escapeHtml(v.def)+'</div>'+synHtml+exHtml;
 }
 function bestVocabScore(){
 if(PROGRESS.vocabQuizzes.length===0) return null;
