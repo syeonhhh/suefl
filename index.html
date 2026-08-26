@@ -394,6 +394,17 @@ position:sticky;top:8px;z-index:20;}
 padding:10px 12px;}
 .selpop.selpop-bottom .selpop-row{justify-content:flex-start;}
 
+/* 표시한 곳을 누르면 그 자리에 뜨는 편집 창 (색 바꾸기·메모 고치기·지우기).
+   예전에는 화면 맨 위에만 떠서 아래쪽을 필기하다 지우려면 올라가야 했어요. */
+.editpop{position:fixed;z-index:8800;display:none;background:var(--card);
+border:1px solid var(--border-strong);border-radius:10px;
+box-shadow:0 6px 22px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.06);
+padding:10px 12px;font-size:12px;color:var(--text);max-width:270px;}
+.editpop textarea{min-height:56px;font-size:13px;padding:6px 8px;margin:0;}
+@media(max-width:900px){
+.editpop{left:8px;right:8px;top:auto;bottom:10px;max-width:none;}
+}
+
 /* 드래그가 안 먹힐 때 옆에 띄워두고 쓰는 도구 창 */
 .tooldock{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:8500;
 background:var(--card);border:1px solid var(--border-strong);border-radius:12px;
@@ -3171,12 +3182,11 @@ swatchRow('형광펜', SELPOP_HL,   function(c){ opts.onFormat('hl', c); });
 swatchRow('밑줄',   SELPOP_LINE, function(c){ opts.onFormat('ul', c); });
 swatchRow('네모',   SELPOP_LINE, function(c){ opts.onFormat('box', c); });
 }
-var actRow=el('<div class="selpop-row" style="gap:6px;"></div>');
 if(opts.onNote){
-var nb=el('<button type="button" class="selpop-act">메모</button>');
-nb.onclick=function(){ opts.onNote(); };
-actRow.appendChild(nb);
+/* 메모도 색을 고를 수 있게 — 예전엔 버튼 하나뿐이라 색을 못 정했어요 */
+swatchRow('메모', SELPOP_LINE, function(c){ opts.onNote(c); });
 }
+var actRow=el('<div class="selpop-row" style="gap:6px;"></div>');
 var wb=el('<button type="button" class="selpop-act">＋ 단어장</button>');
 wb.onclick=function(){ quickAddWord(getText() || lastSelText(), onMsg); };
 actRow.appendChild(wb);
@@ -3188,7 +3198,7 @@ var pop=selPopEl();
 pop.innerHTML='';
 fillSelTools(pop, {
 onFormat: opts.onFormat ? function(t,c){ opts.onFormat(t,c); hideSelPop(); } : null,
-onNote:   opts.onNote   ? function(){ opts.onNote(); hideSelPop(); } : null
+onNote:   opts.onNote   ? function(c){ opts.onNote(c); hideSelPop(); } : null
 }, function(){ return selText; }, function(msg){ selPopMsg(msg); });
 return pop;
 }
@@ -3297,6 +3307,7 @@ var info = kind==='reading' ? readingTaskInfo(item.taskType) : listeningTaskInfo
 function leaveAnalysis(){
 detachAnnotShortcuts();
 closeToolDock();
+if(eraseBar && eraseBar.parentNode) eraseBar.parentNode.removeChild(eraseBar);
 }
 var editBtn=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 내용 수정</button>');
 var editHolder=el('<div style="margin-bottom:12px;"></div>');
@@ -3335,7 +3346,7 @@ return false;
 function openDockHere(){
 dockCtl=openToolDock({
 onFormat:function(type,color){ if(!needSel()) return; applyFormat(type,color); dockCtl.say('적용했어요.'); },
-onNote:function(){ if(!needSel()) return; addNote(); dockCtl.say('메모를 추가했어요.'); },
+onNote:function(c){ if(!needSel()) return; addNote(c); dockCtl.say('메모를 추가했어요.'); },
 onClose:function(){ refreshDockBtn(); }
 });
 refreshDockBtn();
@@ -3537,6 +3548,14 @@ styleForSpan(span);
 
 /* 메모 글은 없는데 껍데기만 남은 덩어리를 풀어줘요.
    예전에 쪼개져서 생긴 것도 화면을 그릴 때 자동으로 정리됩니다. */
+/* 이미 달아둔 메모의 색을 바꿔요 */
+function setNoteColor(wrap, color){
+var mark=wrap.querySelector('.annot-notemark');
+var txt=wrap.querySelector('.annot-notetext');
+if(mark) mark.style.color=color;
+if(txt){ txt.style.color=color; txt.style.borderColor=color; }
+}
+
 function dropGhostNotes(zoneEl){
 Array.prototype.forEach.call(zoneEl.querySelectorAll('.annot-wrap'), function(wrap){
 if(wrap.querySelector('.annot-notetext')) return;
@@ -3669,9 +3688,29 @@ outFrag.appendChild(span);
 return outFrag;
 }
 
-var eraseBar=el('<div style="display:none;flex-direction:column;gap:6px;margin-bottom:12px;padding:10px 12px;background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;"></div>');
-card.appendChild(eraseBar);
+/* 화면 맨 위가 아니라 누른 자리에 떠요. body에 붙여야 어디서든 제자리에 뜹니다. */
+var eraseBar=el('<div class="editpop"></div>');
+eraseBar.addEventListener('mousedown', function(e){
+if(e.target && e.target.tagName!=='TEXTAREA' && e.target.tagName!=='INPUT') e.preventDefault();
+});
+/* 필기 화면을 다시 그릴 때마다 하나씩 쌓이면 안 돼요 */
+Array.prototype.forEach.call(document.querySelectorAll('.editpop'), function(n){
+if(n.parentNode) n.parentNode.removeChild(n);
+});
+document.body.appendChild(eraseBar);
 function hideErase(){ eraseBar.style.display='none'; eraseBar.innerHTML=''; pendingEraseSpan=null; }
+function placeErase(rect){
+eraseBar.style.visibility='hidden';
+eraseBar.style.display='block';
+if(window.innerWidth<=900){ eraseBar.style.left=''; eraseBar.style.top=''; eraseBar.style.visibility='visible'; return; }
+eraseBar.style.left='0px'; eraseBar.style.top='0px';
+var w=eraseBar.offsetWidth, h=eraseBar.offsetHeight;
+var left=Math.max(8, Math.min(window.innerWidth-w-8, rect.left+rect.width/2-w/2));
+var top=rect.bottom+8;
+if(top+h>window.innerHeight-8) top=Math.max(8, rect.top-h-8);
+eraseBar.style.left=left+'px'; eraseBar.style.top=top+'px';
+eraseBar.style.visibility='visible';
+}
 var pendingEraseSpan=null;
 
 var addWordPanel=el('<div style="display:none;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);"></div>');
@@ -3822,7 +3861,7 @@ if(!splitL.childNodes.length) splitWrap.classList.add('single');
 
 panel.appendChild(card);
 
-function addNote(){
+function addNote(noteColor){
 var ctx=getActiveZone();
 if(!ctx){ showStatus('먼저 지문 또는 선지에서 문장을 드래그해서 선택해주세요.', true); return; }
 var sel=ctx.sel, range=ctx.range, zone=ctx.zone;
@@ -3835,7 +3874,7 @@ var probe=range.cloneContents();
 if(probe.querySelector && probe.querySelector('.annot-wrap')) already=true;
 }catch(e){}
 if(already){ showStatus('이미 메모가 달린 부분이에요. 그 메모를 눌러서 고쳐 쓰거나 지운 뒤에 다시 해주세요.', true); return; }
-var color=notePicker.get();
+var color=noteColor || notePicker.get();
 var wrap=document.createElement('span');
 wrap.className='annot-wrap';
 wrap.dataset.annot='note';
@@ -3923,38 +3962,106 @@ boxBtn.onclick=function(){ applyFormat('box', boxPicker.get()); };
 noteBtn.onclick=function(){ addNote(); };
 
 function formatLabel(k){ return k==='hl'?'형광펜':(k==='ul'?'밑줄':'네모박스'); }
+/* 표시한 곳을 누르면 그 자리에 뜨는 편집 창.
+   색을 바꾸거나, 메모 내용을 고치거나, 지울 수 있어요. */
 function showEraseFor(span, zoneEl){
 eraseBar.innerHTML='';
-var wordElForLabel=span.dataset.annot==='note' ? span.querySelector('.annot-word') : null;
+var isNote = span.dataset.annot==='note';
+var wordElForLabel = isNote ? span.querySelector('.annot-word') : null;
 var textContent=(wordElForLabel?wordElForLabel.textContent:span.textContent).trim();
-var rows=[];
-if(span.dataset.annot==='fmt'){
-if(span.dataset.hl) rows.push({key:'hl', label:formatLabel('hl')});
-if(span.dataset.ul) rows.push({key:'ul', label:formatLabel('ul')});
-if(span.dataset.box) rows.push({key:'box', label:formatLabel('box')});
-} else if(span.dataset.annot==='highlight'){
-rows.push({key:'legacy', label:'형광펜'});
-} else if(span.dataset.annot==='underline'){
-rows.push({key:'legacy', label:'밑줄'});
-} else if(span.dataset.annot==='note'){
-rows.push({key:'note', label:'메모'});
+if(isNote){
+var nt=span.querySelector('.annot-notetext');
+if(nt) textContent=(wordElForLabel?wordElForLabel.textContent:'').trim();
 }
-if(!rows.length){ hideErase(); return; }
-rows.forEach(function(r){
-var row=el('<div class="row" style="align-items:center;gap:10px;"></div>');
-var label=el('<span style="font-size:13px;color:var(--amber);font-weight:500;flex:1;"></span>');
-label.textContent=r.label+' 지우기: "'+textContent+'"';
-var btn=el('<button class="btn small danger">지우기</button>');
-btn.onclick=function(){ removeFormat(span, r.key, zoneEl); };
-row.appendChild(label); row.appendChild(btn);
-eraseBar.appendChild(row);
+
+/* 형광펜 위에 밑줄, 그 위에 네모처럼 겹쳐 칠하면 span이 층층이 쌓여요.
+   맨 안쪽만 다룰 수 있으면 바깥 것을 못 지우니, 위로 올라가며 전부 모읍니다. */
+var chain=[], walkUp=span;
+while(walkUp && walkUp!==zoneEl){
+if(walkUp.dataset && walkUp.dataset.annot) chain.push(walkUp);
+walkUp=walkUp.parentElement;
+}
+var rows=[];
+chain.forEach(function(sp){
+if(sp.dataset.annot==='fmt'){
+if(sp.dataset.hl) rows.push({span:sp, key:'hl', label:formatLabel('hl')});
+if(sp.dataset.ul) rows.push({span:sp, key:'ul', label:formatLabel('ul')});
+if(sp.dataset.box) rows.push({span:sp, key:'box', label:formatLabel('box')});
+} else if(sp.dataset.annot==='highlight'){
+rows.push({span:sp, key:'legacy', label:'형광펜'});
+} else if(sp.dataset.annot==='underline'){
+rows.push({span:sp, key:'legacy', label:'밑줄'});
+} else if(sp.dataset.annot==='note'){
+rows.push({span:sp, key:'note', label:'메모'});
+}
 });
-var cancelRow=el('<div class="row" style="justify-content:flex-end;"></div>');
-var cancelBtn=el('<button class="btn small">취소</button>');
+if(!rows.length){ hideErase(); return; }
+/* 메모가 섞여 있으면 그 메모를 기준으로 보여줘요 */
+var noteRow=null;
+rows.forEach(function(r){ if(!noteRow && r.key==='note') noteRow=r; });
+if(noteRow){ isNote=true; span=noteRow.span; wordElForLabel=span.querySelector('.annot-word'); }
+textContent=(wordElForLabel?wordElForLabel.textContent:chain.length?chain[0].textContent:span.textContent).trim();
+
+var head=el('<div style="font-size:12px;color:var(--text-2);margin-bottom:8px;"></div>');
+head.textContent='"'+(textContent.length>22?textContent.slice(0,22)+'…':textContent)+'"';
+eraseBar.appendChild(head);
+
+/* ---- 메모: 내용과 색을 여기서 바로 고쳐요 ---- */
+if(isNote){
+var noteEl=span.querySelector('.annot-notetext');
+var ta=el('<textarea placeholder="메모 내용" style="width:100%;"></textarea>');
+ta.value=noteEl?noteEl.textContent:'';
+ta.oninput=function(){
+if(noteEl){ noteEl.textContent=ta.value; persistZone(zoneEl); }
+};
+eraseBar.appendChild(ta);
+var cRow=el('<div class="selpop-row" style="margin-top:8px;"></div>');
+cRow.appendChild(el('<span class="selpop-lab">색</span>'));
+SELPOP_LINE.forEach(function(c){
+var sw=el('<button type="button" class="selpop-sw"></button>');
+sw.style.background=c;
+sw.title='메모 색 '+c;
+sw.onclick=function(){ setNoteColor(span, c); persistZone(zoneEl); };
+cRow.appendChild(sw);
+});
+eraseBar.appendChild(cRow);
+}
+
+/* ---- 형광펜·밑줄·네모: 색 바꾸기 ---- */
+rows.forEach(function(r){
+if(r.key==='note' || r.key==='legacy') return;
+var cr=el('<div class="selpop-row"></div>');
+cr.appendChild(el('<span class="selpop-lab">'+r.label+'</span>'));
+var palette = r.key==='hl' ? SELPOP_HL : SELPOP_LINE;
+palette.forEach(function(c){
+var sw=el('<button type="button" class="selpop-sw"></button>');
+sw.style.background=c;
+sw.title=r.label+' '+c;
+sw.onclick=function(){
+r.span.dataset[r.key]=c;
+styleForSpan(r.span);
+refreshBoxGroups(zoneEl);
+persistZone(zoneEl);
+};
+cr.appendChild(sw);
+});
+eraseBar.appendChild(cr);
+});
+
+/* ---- 지우기 ---- */
+var delRow=el('<div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap;"></div>');
+rows.forEach(function(r){
+var btn=el('<button class="btn small danger"></button>');
+btn.textContent=(rows.length>1? (r.label+' 지우기') : '지우기');
+btn.onclick=function(){ removeFormat(r.span, r.key, zoneEl); };
+delRow.appendChild(btn);
+});
+var cancelBtn=el('<button class="btn small" style="margin-left:auto;">닫기</button>');
 cancelBtn.onclick=hideErase;
-cancelRow.appendChild(cancelBtn);
-eraseBar.appendChild(cancelRow);
-eraseBar.style.display='flex';
+delRow.appendChild(cancelBtn);
+eraseBar.appendChild(delRow);
+
+placeErase((chain.length?chain[0]:span).getBoundingClientRect());
 pendingEraseSpan=span;
 }
 function removeFormat(span, key, zoneEl){
@@ -4046,7 +4153,7 @@ rebindNotes(zoneEl);
 /* 이 영역에서 드래그하면 서식·메모·단어장 도구가 그 자리에 떠요 */
 registerSelTools(zoneEl, {
 onFormat: function(type, color){ applyFormat(type, color); },
-onNote: function(){ addNote(); }
+onNote: function(c){ addNote(c); }
 });
 zoneEl.addEventListener('click', function(e){
 var t=e.target;
