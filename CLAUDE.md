@@ -60,7 +60,7 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `mergeSyncPayload` | 클라우드 병합 (덮어쓰기 아님) |
 | `markDeleted` / `dropDeleted` | 삭제 툼스톤 |
 | `importData` / `runImportText` | JSON 가져오기 |
-| `runExport` | JSON 내보내기 |
+| `runExport` | JSON 내보내기. `'backup'`은 필기·메모·진도까지 담는 전체 백업 |
 | `renderMock` | 모의고사. 설정 → 진행 → 결과를 `MOCK` 전역 상태로 전환 |
 | `buildMockUnits` | 뽑은 문제를 푸는 단위로 펼침 (리딩·리스닝은 문항 단위) |
 | `buildCwDrill` | 리딩 Task 1 철자 연습 (`wi__` 맞히기). 틀린 빈칸 자동 수집 |

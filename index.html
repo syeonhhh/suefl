@@ -1791,6 +1791,12 @@ b.onclick=function(){ runExport(pair[0], setStatus); };
 exRow.appendChild(b);
 });
 jbox.appendChild(exRow);
+jbox.appendChild(el('<p class="muted" style="margin:12px 0 6px;">💾 주소를 옮기거나 통째로 백업할 때는 이걸 쓰세요. 위 내보내기에는 <strong>필기·메모·진도가 들어가지 않아요.</strong></p>'));
+var bkRow=el('<div class="row"></div>');
+var bkBtn=el('<button class="btn small primary">전체 백업 (필기·메모·진도 포함)</button>');
+bkBtn.onclick=function(){ runExport('backup', setStatus); };
+bkRow.appendChild(bkBtn);
+jbox.appendChild(bkRow);
 paneHolder.appendChild(jbox);
 }
 }
@@ -6215,6 +6221,17 @@ return {id:uid(), q:String(q.q||q.question||'질문'), opts:opts, answer:answer,
 });
 }
 function importData(obj){
+/* 전체 백업 파일이면 필기·메모·진도까지 통째로 되살려요.
+   덮어쓰기가 아니라 병합이라 지금 있는 것도 남습니다. */
+if(obj && obj.__suefl==='backup'){
+mergeSyncPayload({
+data:obj.data||{}, notes:obj.notes||{}, annotations:obj.annotations||{},
+progress:obj.progress||{}, deleted:obj.deleted||{}
+});
+var n=0;
+for(var kk in (obj.annotations||{})){ if(obj.annotations.hasOwnProperty(kk)) n++; }
+return {backup:true, annot:n};
+}
 var counts={vocab:0,reading:0,listening:0,speaking:0,writing:0};
 normalizeArray(obj.vocab).forEach(function(v){
 if(!v || !v.word) return;
@@ -6259,6 +6276,14 @@ function say(msg, color){ if(resultEl){ resultEl.textContent=msg; resultEl.style
 var obj;
 try{ obj=JSON.parse(jsonStr); }catch(e){ say('JSON 형식이 올바르지 않아요. 파일 내용을 확인해주세요.', 'var(--red)'); return; }
 var counts=importData(obj);
+/* 전체 백업을 되살린 경우 — 문제 개수가 아니라 통째로 병합된 거예요 */
+if(counts && counts.backup){
+window.__lastImportMsg='백업을 되살렸어요! 필기 '+counts.annot+'개 문제분과 메모·진도까지 들어왔어요.';
+renderVocab(); renderReading(); renderListening(); renderWritingSpeaking();
+try{ renderNotesTab(); renderProgress(); }catch(e){}
+say(window.__lastImportMsg, 'var(--green)');
+return;
+}
 var total=counts.vocab+counts.reading+counts.listening+counts.speaking+counts.writing;
 if(total===0){ say('추가된 항목이 없어요. JSON 형식을 확인해주세요.', 'var(--red)'); return; }
 var parts=[];
@@ -6319,6 +6344,25 @@ else {
 obj={vocab:DATA.vocab||[], reading:DATA.reading||[], listening:DATA.listening||[], speaking:DATA.speaking||[], writing:DATA.writing||{}};
 name='toefl-all-'+stamp+'.json';
 count=(obj.vocab.length)+(obj.reading.length)+(obj.listening.length)+(obj.speaking.length);
+}
+if(kind==='backup'){
+/* 다른 주소로 옮길 때 쓰는 통째 백업.
+   문제뿐 아니라 필기·메모장·진도·삭제기록까지 담아요.
+   API 키는 비밀이라 일부러 뺍니다. */
+obj={
+__suefl:'backup', version:1,
+data:DATA, notes:NOTES, annotations:ANNOTATIONS, progress:PROGRESS, deleted:DELETED,
+savedAt:new Date().toISOString()
+};
+name='suefl-backup-'+stamp+'.json';
+var annotCount=0;
+for(var k in ANNOTATIONS){ if(ANNOTATIONS.hasOwnProperty(k)) annotCount++; }
+var okB=downloadJson(obj, name);
+exportStatus(okB
+ ? (name+' 로 백업했어요. 필기 '+annotCount+'개 문제분과 메모·진도까지 들어 있어요.')
+ : '이 환경에서는 파일 저장이 막혀 있어요. 실제 사이트 주소에서 시도해주세요.',
+ okB?'var(--green)':'var(--red)');
+return;
 }
 if(count===0){ exportStatus('내보낼 항목이 없어요.', 'var(--amber)'); return; }
 var ok=downloadJson(obj, name);
