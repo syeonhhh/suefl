@@ -82,7 +82,9 @@ textarea::placeholder,input::placeholder{color:var(--text-3);}
 .flashcard .word{font-size:42px;font-weight:800;color:var(--fc-word);letter-spacing:-0.025em;line-height:1.15;}
 .flashcard .pos{font-size:14px;font-weight:600;color:var(--fc-sub);letter-spacing:.01em;}
 .flashcard .def{font-size:24px;font-weight:700;color:var(--fc-def);max-width:100%;line-height:1.5;letter-spacing:-0.01em;}
-.flashcard .ex{font-size:16px;font-weight:500;color:var(--fc-sub);font-style:italic;line-height:1.65;max-width:100%;}
+/* 예문은 '공부할 영문'이라 지문과 같은 세리프로. 이탤릭은 길어지면 읽기 힘들어서 뺐어요 */
+.flashcard .ex{font-family:var(--read);font-size:18.5px;font-weight:400;font-style:normal;color:#33302a;line-height:1.7;width:100%;max-width:100%;text-align:left;background:#efece4;border:1px solid #ded9cc;border-radius:10px;padding:13px 15px;}
+.flashcard .ex b{font-weight:600;color:#15140f;}
 .flashcard .synrow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:center;max-width:100%;}
 .flashcard .synlabel{font-size:12.5px;font-weight:600;color:var(--fc-sub);}
 /* 카드는 항상 흰 종이라 칩 색도 테마와 무관하게 고정해요 */
@@ -249,7 +251,7 @@ h1{font-size:20px;}
 .flashcard{padding:26px 16px;min-height:min(58vh,420px);gap:12px;}
 .flashcard .word{font-size:33px;}
 .flashcard .def{font-size:21px;}
-.flashcard .ex{font-size:15px;}
+.flashcard .ex{font-size:17px;padding:11px 13px;}
 .fc-star{font-size:27px;}
 .listitem{flex-wrap:wrap;gap:8px;}
 button.btn{padding:9px 14px;}
@@ -2425,6 +2427,24 @@ btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
 box.appendChild(btnRow);
 return box;
 }
+/* 예문 안에 그 단어가 어떻게 쓰였는지 바로 보이게 굵게 표시해요 */
+function exampleHtml(v){
+if(!v.example) return '';
+var txt=escapeHtml(v.example);
+var w=String(v.word||'').trim();
+if(w){
+/* 어형이 바뀐 형태까지 잡으려고 긴 단어는 뒤 세 글자를 떼고 찾아요
+   (ambiguous → ambigu- → ambiguity). 짧은 단어는 엉뚱한 게 걸려서 그대로 씁니다. */
+var long = w.length>=6;
+var base = long ? w.slice(0, w.length-3) : w;
+/* 정규식에서 특별한 뜻을 갖는 글자를 막아둬요 */
+var stem = base.replace(/[^A-Za-z0-9]/g, function(ch){ return '\\'+ch; });
+/* 짧은 단어는 흔한 어미만 허용해요 — run에 runt까지 걸리면 안 되니까 */
+var tail = long ? '[a-z]{0,6}' : '(?:s|es|ed|d|ing|ly)?';
+try{ txt=txt.replace(new RegExp('\\b'+stem+tail+'\\b','gi'), function(m){ return '<b>'+m+'</b>'; }); }catch(e){}
+}
+return '<div class="ex">'+txt+'</div>';
+}
 /* 앞면은 단어만, 뒷면은 뜻·유의어·예문 */
 function flashcardFaceHtml(v, flipped){
 if(!v) return '';
@@ -2435,7 +2455,7 @@ if(v.synonyms){
 var chips=v.synonyms.split(',').map(function(s){return s.trim();}).filter(Boolean).map(function(s){return '<span class="syn-chip">'+escapeHtml(s)+'</span>';}).join('');
 if(chips) synHtml='<div class="synrow"><span class="synlabel">유의어</span>'+chips+'</div>';
 }
-var exHtml = v.example ? '<div class="ex">"'+escapeHtml(v.example)+'"</div>' : '';
+var exHtml = exampleHtml(v);
 return imgHtml+'<div class="word">'+escapeHtml(v.word)+'</div><div class="pos">'+escapeHtml(v.pos||'')+'</div><div class="def">'+escapeHtml(v.def)+'</div>'+synHtml+exHtml;
 }
 function bestVocabScore(){
