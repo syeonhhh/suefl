@@ -18,6 +18,24 @@ C:\Claude\suefl\
 
 ## 배포
 
+### GitHub Pages (주력)
+
+`main`에 push하면 자동 반영. 배포 횟수 제한 없음.
+
+- 주소: https://syeonhhh.github.io/suefl/
+- 저장소 Settings → Pages → Source: `main` / `(root)`
+- `.nojekyll`이 있어야 Jekyll이 파일을 건드리지 않음
+- 경로는 전부 상대 경로라 하위 주소(`/suefl/`)에서도 동작
+
+```bash
+git push
+```
+
+### Netlify (예비)
+
+⚠️ 무료 플랜은 월 300크레딧이고 **배포 1회에 15크레딧**(월 20회). 다 쓰면 사이트가 멈춤.
+크레딧이 아까우면 GitHub Pages를 쓸 것.
+
 1. `index.html` (또는 `builtin.js`) 수정
 2. 검증: 브라우저에서 실제로 열어 콘솔 에러 0건 확인
    - ⚠️ 이 PC에 node가 없어서 예전 문법 검사 명령은 못 씀
