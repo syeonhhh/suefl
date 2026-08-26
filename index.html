@@ -2117,8 +2117,8 @@ v.word=wIn.value.trim(); v.pos=pIn.value.trim(); v.def=dIn.value.trim(); v.synon
 saveData();
 afterSave&&afterSave();
 };
-var cancelBtn=el('<button class="btn small" style="margin-left:6px;">취소</button>');
-cancelBtn.onclick=function(){ afterSave&&afterSave(); };
+var cancelBtn=el('<button class="btn small" style="margin-left:6px;">취소 (저장 안 함)</button>');
+cancelBtn.onclick=function(){ if(onCancel){ onCancel(); return; } afterSave&&afterSave(); };
 btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
 box.appendChild(btnRow);
 return box;
@@ -2383,7 +2383,7 @@ renderFormBody();
 return box;
 }
 
-function buildReadingEditForm(item, info, afterSave){
+function buildReadingEditForm(item, info, afterSave, onCancel){
 var box=el('<div style="margin-top:10px;padding:12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);width:100%;"></div>');
 box.appendChild(el('<h4 style="margin:0 0 8px;">문제 내용 수정</h4>'));
 if(item.taskType==='completeWords'){
@@ -2403,8 +2403,8 @@ item.passage=textIn.value.trim();
 saveData();
 afterSave&&afterSave();
 };
-var cancelBtn=el('<button class="btn small" style="margin-left:6px;">취소</button>');
-cancelBtn.onclick=function(){ afterSave&&afterSave(); };
+var cancelBtn=el('<button class="btn small" style="margin-left:6px;">취소 (저장 안 함)</button>');
+cancelBtn.onclick=function(){ if(onCancel){ onCancel(); return; } afterSave&&afterSave(); };
 btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
 box.appendChild(btnRow);
 } else {
@@ -2465,8 +2465,8 @@ item.questions=questions;
 saveData();
 afterSave&&afterSave();
 };
-var cancelBtn2=el('<button class="btn small" style="margin-left:6px;">취소</button>');
-cancelBtn2.onclick=function(){ afterSave&&afterSave(); };
+var cancelBtn2=el('<button class="btn small" style="margin-left:6px;">취소 (저장 안 함)</button>');
+cancelBtn2.onclick=function(){ if(onCancel){ onCancel(); return; } afterSave&&afterSave(); };
 btnRow2.appendChild(saveBtn2); btnRow2.appendChild(cancelBtn2);
 box.appendChild(btnRow2);
 }
@@ -2703,7 +2703,7 @@ box.appendChild(saveBtn);
 return box;
 }
 
-function buildListeningEditForm(item, afterSave){
+function buildListeningEditForm(item, afterSave, onCancel){
 var box=el('<div style="margin-top:10px;padding:12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);width:100%;"></div>');
 box.appendChild(el('<h4 style="margin:0 0 8px;">문제 내용 수정</h4>'));
 var textIn2=el('<textarea style="min-height:130px;width:100%;"></textarea>');
@@ -2764,8 +2764,8 @@ item.questions=questions;
 saveData();
 afterSave&&afterSave();
 };
-var cancelBtn2=el('<button class="btn small" style="margin-left:6px;">취소</button>');
-cancelBtn2.onclick=function(){ afterSave&&afterSave(); };
+var cancelBtn2=el('<button class="btn small" style="margin-left:6px;">취소 (저장 안 함)</button>');
+cancelBtn2.onclick=function(){ if(onCancel){ onCancel(); return; } afterSave&&afterSave(); };
 btnRow2.appendChild(saveBtn2); btnRow2.appendChild(cancelBtn2);
 box.appendChild(btnRow2);
 return box;
@@ -3312,12 +3312,22 @@ if(eraseBar && eraseBar.parentNode) eraseBar.parentNode.removeChild(eraseBar);
 var editBtn=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 내용 수정</button>');
 var editHolder=el('<div style="margin-bottom:12px;"></div>');
 var editOpen=false;
+function closeEdit(){
+editHolder.innerHTML='';
+editOpen=false;
+editBtn.style.display='';
+}
 editBtn.onclick=function(){
-if(editOpen){ editHolder.innerHTML=''; editOpen=false; editBtn.textContent='문제 내용 수정'; return; }
+if(editOpen){ closeEdit(); return; }
+/* 저장하면 화면을 새로 그리고, 취소하면 그냥 닫아요 */
 var reopen=function(){ leaveAnalysis(); renderAnalysisView(item, kind); };
 editHolder.innerHTML='';
-editHolder.appendChild(kind==='reading' ? buildReadingEditForm(item, info, reopen) : buildListeningEditForm(item, reopen));
-editOpen=true; editBtn.textContent='수정 닫기';
+editHolder.appendChild(kind==='reading'
+  ? buildReadingEditForm(item, info, reopen, closeEdit)
+  : buildListeningEditForm(item, reopen, closeEdit));
+editOpen=true;
+/* 열려 있는 동안에는 이 버튼을 감춰요. 폼 안의 저장/취소만 남습니다. */
+editBtn.style.display='none';
 };
 panel.appendChild(editBtn);
 panel.appendChild(editHolder);
@@ -4337,7 +4347,7 @@ var box=el('<div style="margin-top:10px;padding:12px;border:1px solid var(--bord
 box.appendChild(el('<h4 style="margin:0 0 8px;">문제 내용 수정</h4>'));
 var warn=el('<p class="muted" style="margin:6px 0 0;min-height:16px;"></p>');
 var saveBtn=el('<button class="btn primary small">저장</button>');
-var cancelBtn=el('<button class="btn small" style="margin-left:6px;">취소</button>');
+var cancelBtn=el('<button class="btn small" style="margin-left:6px;">취소 (저장 안 함)</button>');
 
 if(typeKey==='buildSentence'){
 box.appendChild(el('<p class="muted" style="margin-bottom:6px;">완성된 문장을 그대로 입력하세요. 단어 순서 맞추기 문제로 바뀌어요.</p>'));
@@ -4395,7 +4405,7 @@ saveData(); afterSave&&afterSave();
 };
 }
 
-cancelBtn.onclick=function(){ afterSave&&afterSave(); };
+cancelBtn.onclick=function(){ if(onCancel){ onCancel(); return; } afterSave&&afterSave(); };
 box.appendChild(warn);
 var btnRow=el('<div class="row" style="margin-top:8px;"></div>');
 btnRow.appendChild(saveBtn); btnRow.appendChild(cancelBtn);
