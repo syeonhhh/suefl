@@ -3718,22 +3718,15 @@ return range;
 
 /* 메모가 달린 단어에도 형광펜·밑줄·네모를 칠할 수 있게.
    메모 덩어리는 통째로 옮겨지므로 안쪽 단어에 직접 서식을 넣습니다. */
+/* 단어 칸 자체에 서식을 걸어요. 안쪽 span에 걸면 ● 표시가 빠져서
+   형광펜·네모박스가 중간에 끊겨 보입니다. */
 function applyFmtInsideNote(noteEl, type, color, gid){
 var wordEl=noteEl.querySelector ? noteEl.querySelector('.annot-word') : null;
 if(!wordEl) return;
-var only = (wordEl.childNodes.length===1 && wordEl.firstChild.nodeType===1
-            && wordEl.firstChild.dataset && wordEl.firstChild.dataset.annot==='fmt')
-           ? wordEl.firstChild : null;
-var span=only;
-if(!span){
-span=document.createElement('span');
-span.dataset.annot='fmt';
-while(wordEl.firstChild) span.appendChild(wordEl.firstChild);
-wordEl.appendChild(span);
-}
-span.dataset[type]=color;
-if(gid && type==='box') span.dataset.boxgroup=gid;
-styleForSpan(span);
+wordEl.dataset.annot='fmt';
+wordEl.dataset[type]=color;
+if(gid && type==='box') wordEl.dataset.boxgroup=gid;
+styleForSpan(wordEl);
 }
 
 /* 메모 글은 없는데 껍데기만 남은 덩어리를 풀어줘요.
@@ -4096,12 +4089,30 @@ var wrap=document.createElement('span');
 wrap.className='annot-wrap';
 wrap.dataset.annot='note';
 wrap.style.position='relative';
-wrap.style.display='inline-block';
+/* inline-block이면 바깥에서 그은 밑줄이 여기서 끊겨요. inline이라야 이어집니다. */
+wrap.style.display='inline';
 var wordSpan=document.createElement('span');
 wordSpan.className='annot-word';
 try{
 var noteFrag=range.extractContents();
 var notePieces=flattenExtracted(noteFrag);
+/* 조각이 전부 같은 서식이면 단어 칸 자체에 걸어요.
+   그래야 ● 표시까지 한 덩어리로 칠해져서 중간이 안 끊깁니다. */
+var sig=null, uniform=true;
+notePieces.forEach(function(pp){
+if(pp.note){ uniform=false; return; }
+var k=(pp.hl||'')+'|'+(pp.ul||'')+'|'+(pp.box||'');
+if(sig===null) sig=k; else if(sig!==k) uniform=false;
+});
+if(uniform && sig && sig!=='||'){
+var pr=sig.split('|');
+notePieces.forEach(function(pp){ pp.hl=null; pp.ul=null; pp.box=null; pp.boxgroup=null; });
+wordSpan.dataset.annot='fmt';
+if(pr[0]) wordSpan.dataset.hl=pr[0];
+if(pr[1]) wordSpan.dataset.ul=pr[1];
+if(pr[2]) wordSpan.dataset.box=pr[2];
+styleForSpan(wordSpan);
+}
 wordSpan.appendChild(piecesToFragment(notePieces));
 }catch(e){ showStatus('선택한 영역에 메모를 추가할 수 없어요.', true); return; }
 var noteMark=document.createElement('sup');
@@ -4140,8 +4151,9 @@ bindNoteEditing(noteSpan, zone);
 noteSpan.addEventListener('blur', function(){ persistZone(zone); });
 noteSpan.addEventListener('click', function(e){ e.stopPropagation(); });
 noteSpan.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); noteSpan.blur(); } });
+/* ● 를 단어 칸 안에 둬야 형광펜·네모박스가 표시까지 감쌉니다 */
+wordSpan.appendChild(noteMark);
 wrap.appendChild(wordSpan);
-wrap.appendChild(noteMark);
 wrap.appendChild(noteSpan);
 range.insertNode(wrap);
 sel.removeAllRanges();
@@ -4217,7 +4229,9 @@ if(!rows.length){ hideErase(); return; }
 var noteRow=null;
 rows.forEach(function(r){ if(!noteRow && r.key==='note') noteRow=r; });
 if(noteRow){ isNote=true; span=noteRow.span; wordElForLabel=span.querySelector('.annot-word'); }
-textContent=(wordElForLabel?wordElForLabel.textContent:chain.length?chain[0].textContent:span.textContent).trim();
+/* ● 표시는 라벨에 안 나오게 */
+textContent=(isNote ? noteWordText(span)
+            : (chain.length?chain[0].textContent:span.textContent)).trim();
 
 var head=el('<div style="font-size:12px;color:var(--text-2);margin-bottom:8px;"></div>');
 head.textContent='"'+(textContent.length>22?textContent.slice(0,22)+'…':textContent)+'"';
@@ -4287,24 +4301,20 @@ if(key==='note'){
 /* 단어 안의 서식은 살리고, ● 표시와 메모 글자만 걷어냅니다.
    예전에는 단어 조각이 없으면 span 전체 텍스트를 넣어서
    메모 글자가 지문에 섞여 들어갔어요. */
-var wordEl=span.querySelector('.annot-word');
-var frag=document.createDocumentFragment();
-if(wordEl){ while(wordEl.firstChild) frag.appendChild(wordEl.firstChild); }
-else {
-var clone=span.cloneNode(true);
-Array.prototype.forEach.call(clone.querySelectorAll('.annot-notetext,.annot-notemark'), function(n){
-if(n.parentNode) n.parentNode.removeChild(n);
-});
-while(clone.firstChild) frag.appendChild(clone.firstChild);
-}
-parent.insertBefore(frag, span);
+parent.insertBefore(noteInnerNodes(span), span);
 parent.removeChild(span);
 } else if(key==='legacy'){
 while(span.firstChild) parent.insertBefore(span.firstChild, span);
 parent.removeChild(span);
 } else {
 delete span.dataset[key];
-if(!span.dataset.hl && !span.dataset.ul && !span.dataset.box){
+var bare = !span.dataset.hl && !span.dataset.ul && !span.dataset.box;
+if(bare && span.classList && span.classList.contains('annot-word')){
+/* 메모의 단어 칸은 껍데기가 남아야 해요. 서식만 벗깁니다. */
+delete span.dataset.annot;
+delete span.dataset.boxgroup;
+styleForSpan(span);
+} else if(bare){
 while(span.firstChild) parent.insertBefore(span.firstChild, span);
 parent.removeChild(span);
 } else {
@@ -4323,18 +4333,40 @@ hideErase();
 function unwrapEmptyNote(wrapEl, zoneEl){
 var parent=wrapEl.parentNode;
 if(!parent) return;
-var wordEl=wrapEl.querySelector('.annot-word');
-if(wordEl){ while(wordEl.firstChild) parent.insertBefore(wordEl.firstChild, wrapEl); }
-else {
-var c=wrapEl.cloneNode(true);
-Array.prototype.forEach.call(c.querySelectorAll('.annot-notetext,.annot-notemark'), function(n){
-if(n.parentNode) n.parentNode.removeChild(n);
-});
-while(c.firstChild) parent.insertBefore(c.firstChild, wrapEl);
-}
+parent.insertBefore(noteInnerNodes(wrapEl), wrapEl);
 parent.removeChild(wrapEl);
 finishZoneEdit(zoneEl);
 }
+/* ● 표시는 메모의 일부라 지문 글자가 아니에요. 꺼낼 때는 빼야 합니다. */
+function noteInnerNodes(wrapEl){
+var frag=document.createDocumentFragment();
+if(!wrapEl) return frag;
+var wd=wrapEl.querySelector('.annot-word');
+var src=(wd||wrapEl).cloneNode(true);
+Array.prototype.forEach.call(src.querySelectorAll('.annot-notemark,.annot-notetext'), function(n){
+if(n.parentNode) n.parentNode.removeChild(n);
+});
+/* 단어 칸이 서식을 지고 있으면 그 서식도 살려서 내보내요 */
+if(wd && wd.dataset && (wd.dataset.hl || wd.dataset.ul || wd.dataset.box)){
+var keep=document.createElement('span');
+keep.dataset.annot='fmt';
+if(wd.dataset.hl) keep.dataset.hl=wd.dataset.hl;
+if(wd.dataset.ul) keep.dataset.ul=wd.dataset.ul;
+if(wd.dataset.box) keep.dataset.box=wd.dataset.box;
+styleForSpan(keep);
+while(src.firstChild) keep.appendChild(src.firstChild);
+frag.appendChild(keep);
+return frag;
+}
+while(src.firstChild) frag.appendChild(src.firstChild);
+return frag;
+}
+function noteWordText(wrapEl){
+var f=noteInnerNodes(wrapEl), d=document.createElement('span');
+d.appendChild(f);
+return d.textContent;
+}
+
 function noteWrapOf(n){
 var w=n;
 while(w && !(w.classList && w.classList.contains('annot-wrap'))) w=w.parentElement;
@@ -4362,7 +4394,25 @@ finishZoneEdit(zoneEl);
 function fixNoteLayout(zoneEl){
 Array.prototype.forEach.call(zoneEl.querySelectorAll('.annot-wrap'), function(wrap){
 wrap.style.position='relative';
-wrap.style.display='inline-block';
+wrap.style.display='inline';
+/* 예전 구조 고치기 — ● 가 단어 칸 밖에 있으면 안으로 옮기고,
+   안쪽 span이 지고 있던 서식은 단어 칸으로 끌어올려요. */
+var wd0=wrap.querySelector('.annot-word');
+if(wd0){
+var inner=(wd0.childNodes.length===1 && wd0.firstChild.nodeType===1
+           && wd0.firstChild.dataset && wd0.firstChild.dataset.annot==='fmt') ? wd0.firstChild : null;
+if(inner){
+wd0.dataset.annot='fmt';
+if(inner.dataset.hl) wd0.dataset.hl=inner.dataset.hl;
+if(inner.dataset.ul) wd0.dataset.ul=inner.dataset.ul;
+if(inner.dataset.box) wd0.dataset.box=inner.dataset.box;
+while(inner.firstChild) wd0.insertBefore(inner.firstChild, inner);
+wd0.removeChild(inner);
+styleForSpan(wd0);
+}
+var stray=wrap.querySelector(':scope > .annot-notemark');
+if(stray) wd0.appendChild(stray);
+}
 var n=wrap.querySelector('.annot-notetext');
 if(!n) return;
 n.style.position='absolute';
