@@ -3462,6 +3462,46 @@ span.style.borderRadius=(span.dataset.hl||span.dataset.box)?'2px':'';
 /* 메모는 「단어 + ● + 메모글」이 한 덩어리예요. 선택이 그 가운데를 가로지르면
    extractContents()가 덩어리를 두 조각으로 쪼개서, 메모 없는 유령 조각이 생기고
    메모 글자가 지문으로 새어 나옵니다. 그래서 걸친 메모는 통째로 포함시켜요. */
+/* 드래그하면 단어 양옆 공백까지 딸려오는 일이 많아요.
+   양 끝 공백만 잘라내고 문장 안쪽 공백은 그대로 둡니다. */
+function trimRangeEdges(range){
+var text=range.toString();
+if(!text) return range;
+var lead=text.match(/^\s*/)[0].length;
+var trail=text.match(/\s*$/)[0].length;
+if(!lead && !trail) return range;
+if(lead+trail>=text.length) return range;   /* 전부 공백이면 손대지 않아요 */
+
+var root=range.commonAncestorContainer;
+if(root.nodeType!==1) root=root.parentNode;
+var parts=[];
+try{
+var walker=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+var n;
+while((n=walker.nextNode())){
+if(range.intersectsNode && !range.intersectsNode(n)) continue;
+var a=(n===range.startContainer)?range.startOffset:0;
+var b=(n===range.endContainer)?range.endOffset:n.nodeValue.length;
+if(b>a) parts.push({node:n, s:a, e:b});
+}
+}catch(e){ return range; }
+if(!parts.length) return range;
+
+var k=lead, i, len;
+for(i=0;i<parts.length;i++){
+len=parts[i].e-parts[i].s;
+if(k<len){ try{ range.setStart(parts[i].node, parts[i].s+k); }catch(e2){} break; }
+k-=len;
+}
+var t=trail, j, len2;
+for(j=parts.length-1;j>=0;j--){
+len2=parts[j].e-parts[j].s;
+if(t<len2){ try{ range.setEnd(parts[j].node, parts[j].e-t); }catch(e3){} break; }
+t-=len2;
+}
+return range;
+}
+
 function expandRangeOverNotes(range, zone){
 function wrapOf(node){
 var n = (node && node.nodeType===1) ? node : (node ? node.parentNode : null);
@@ -3786,6 +3826,7 @@ function addNote(){
 var ctx=getActiveZone();
 if(!ctx){ showStatus('먼저 지문 또는 선지에서 문장을 드래그해서 선택해주세요.', true); return; }
 var sel=ctx.sel, range=ctx.range, zone=ctx.zone;
+trimRangeEdges(range);
 expandRangeOverNotes(range, zone);
 /* 이미 메모가 달린 자리에 또 달면 덩어리가 겹쳐요 */
 var already=null;
@@ -3857,6 +3898,7 @@ function applyFormat(type, color){
 var ctx=getActiveZone();
 if(!ctx){ showStatus('먼저 지문 또는 선지에서 문장을 드래그해서 선택해주세요.', true); return; }
 var sel=ctx.sel, range=ctx.range, zone=ctx.zone;
+trimRangeEdges(range);
 expandRangeOverNotes(range, zone);
 var frag;
 try{ frag=range.extractContents(); }catch(e){ showStatus('선택한 영역에 서식을 적용할 수 없어요.', true); return; }
