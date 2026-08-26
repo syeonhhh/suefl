@@ -54,6 +54,8 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `taskSubtabs` / `curTask` | Task 유형 선택. `TASK_SEL` 전역 |
 | `renderExamQuestions` | 리딩·리스닝 공용 문제풀이. `opts.onQuestion` 콜백으로 문제별 스크립트 전환 |
 | `renderAnalysisView` | 필기(분석) 화면. 형광펜·밑줄·네모박스·메모 |
+| `fillSelTools` | 서식 도구 내용. 드래그 팝업과 옆 도구 창이 같이 씀 |
+| `openToolDock` | 드래그가 안 먹힐 때 옆에 띄우는 수동 도구 창 |
 | `flattenExtracted` / `piecesToFragment` | 서식 span 평탄화. 중첩 span 깨짐 방지의 핵심 |
 | `mergeSyncPayload` | 클라우드 병합 (덮어쓰기 아님) |
 | `markDeleted` / `dropDeleted` | 삭제 툼스톤 |

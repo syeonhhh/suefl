@@ -388,6 +388,15 @@ background:var(--card);border:1px solid var(--border-strong);border-radius:10px;
 position:sticky;top:8px;z-index:20;}
 .mock-clock{font-variant-numeric:tabular-nums;font-size:19px;font-weight:700;letter-spacing:.02em;}
 
+/* 드래그가 안 먹힐 때 옆에 띄워두고 쓰는 도구 창 */
+.tooldock{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:8500;
+background:var(--card);border:1px solid var(--border-strong);border-radius:12px;
+box-shadow:0 8px 26px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.06);
+padding:10px 12px;font-size:12px;color:var(--text);max-width:210px;}
+@media(max-width:900px){
+.tooldock{right:8px;left:8px;top:auto;bottom:8px;transform:none;max-width:none;}
+}
+
 /* 단축키 줄 */
 .shortcut-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px 16px;margin:0 0 12px;font-size:12px;color:var(--text-2);}
 .shortcut-bar span{display:inline-flex;align-items:center;gap:5px;}
@@ -3109,9 +3118,9 @@ pop.appendChild(m);
 }
 var SELPOP_HL=['#fff59d','#a5d6a7','#f8bbd0','#90caf9','#ffcc80'];
 var SELPOP_LINE=['#1a1a1a','#d32f2f','#1565c0','#2e7d32'];
-function buildSelPop(opts, selText){
-var pop=selPopEl();
-pop.innerHTML='';
+/* 같은 도구를 떠다니는 팝업에도, 옆에 고정한 창에도 그릴 수 있게 분리했어요.
+   getText는 누르는 순간의 선택을 읽어야 해서 함수로 받습니다. */
+function fillSelTools(container, opts, getText, onMsg){
 function swatchRow(label, colors, onPick){
 var row=el('<div class="selpop-row"></div>');
 row.appendChild(el('<span class="selpop-lab">'+label+'</span>'));
@@ -3119,10 +3128,10 @@ colors.forEach(function(c){
 var sw=el('<button type="button" class="selpop-sw"></button>');
 sw.style.background=c;
 sw.title=label+' '+c;
-sw.onclick=function(){ onPick(c); hideSelPop(); };
+sw.onclick=function(){ onPick(c); };
 row.appendChild(sw);
 });
-pop.appendChild(row);
+container.appendChild(row);
 }
 if(opts.onFormat){
 swatchRow('형광펜', SELPOP_HL,   function(c){ opts.onFormat('hl', c); });
@@ -3132,14 +3141,56 @@ swatchRow('네모',   SELPOP_LINE, function(c){ opts.onFormat('box', c); });
 var actRow=el('<div class="selpop-row" style="gap:6px;"></div>');
 if(opts.onNote){
 var nb=el('<button type="button" class="selpop-act">메모</button>');
-nb.onclick=function(){ opts.onNote(); hideSelPop(); };
+nb.onclick=function(){ opts.onNote(); };
 actRow.appendChild(nb);
 }
 var wb=el('<button type="button" class="selpop-act">＋ 단어장</button>');
-wb.onclick=function(){ quickAddWord(selText, function(msg){ selPopMsg(msg); }); };
+wb.onclick=function(){ quickAddWord(getText(), onMsg); };
 actRow.appendChild(wb);
-pop.appendChild(actRow);
+container.appendChild(actRow);
+}
+
+function buildSelPop(opts, selText){
+var pop=selPopEl();
+pop.innerHTML='';
+fillSelTools(pop, {
+onFormat: opts.onFormat ? function(t,c){ opts.onFormat(t,c); hideSelPop(); } : null,
+onNote:   opts.onNote   ? function(){ opts.onNote(); hideSelPop(); } : null
+}, function(){ return selText; }, function(msg){ selPopMsg(msg); });
 return pop;
+}
+
+/* ---- 옆에 고정해두는 도구 창 ----
+   드래그해도 팝업이 안 뜨는 경우를 대비한 수동 창이에요.
+   눌러도 선택이 풀리지 않게 mousedown을 막습니다. */
+var TOOLDOCK=null, TOOLDOCK_OPEN=false;
+function closeToolDock(){
+if(TOOLDOCK && TOOLDOCK.parentNode) TOOLDOCK.parentNode.removeChild(TOOLDOCK);
+TOOLDOCK=null;
+}
+function openToolDock(opts){
+closeToolDock();
+var d=el('<div class="tooldock"></div>');
+d.addEventListener('mousedown', function(e){ e.preventDefault(); });
+var head=el('<div class="row" style="justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;"></div>');
+head.appendChild(el('<strong style="font-size:12px;">필기 도구</strong>'));
+var xb=el('<button type="button" class="selpop-act">닫기</button>');
+xb.onclick=function(){ TOOLDOCK_OPEN=false; closeToolDock(); if(opts.onClose) opts.onClose(); };
+head.appendChild(xb);
+d.appendChild(head);
+var body=el('<div></div>');
+d.appendChild(body);
+var msg=el('<div class="selpop-msg" style="min-height:14px;margin-top:6px;"></div>');
+function say(m){ msg.textContent=m; }
+fillSelTools(body, opts, function(){
+var sel=window.getSelection();
+return sel ? sel.toString().trim() : '';
+}, say);
+d.appendChild(msg);
+d.appendChild(el('<p class="muted" style="margin:4px 0 0;font-size:11px;line-height:1.5;">글자를 드래그해서 고른 뒤 눌러주세요.</p>'));
+document.body.appendChild(d);
+TOOLDOCK=d; TOOLDOCK_OPEN=true;
+return {say:say};
 }
 
 /* 모르는 단어를 드래그해서 바로 단어장에. API 키가 있으면 뜻은 뒤에서 알아서 채워져요 */
@@ -3192,9 +3243,9 @@ var panelId = kind==='reading' ? 'panel-reading' : 'panel-listening';
 var panel=document.getElementById(panelId);
 panel.innerHTML='';
 var backList=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-backList.onclick=function(){ detachAnnotShortcuts(); kind==='reading'?renderReading():renderListening(); };
+backList.onclick=function(){ leaveAnalysis(); kind==='reading'?renderReading():renderListening(); };
 var backExam=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 다시 보기</button>');
-backExam.onclick=function(){ detachAnnotShortcuts(); kind==='reading'?(item.taskType==='completeWords'?renderCompleteWordsExam(item):renderReadingExam(item)):renderListeningExam(item); };
+backExam.onclick=function(){ leaveAnalysis(); kind==='reading'?(item.taskType==='completeWords'?renderCompleteWordsExam(item):renderReadingExam(item)):renderListeningExam(item); };
 panel.appendChild(backList); panel.appendChild(backExam);
 
 var info = kind==='reading' ? readingTaskInfo(item.taskType) : listeningTaskInfo(item.taskType);
@@ -3202,6 +3253,7 @@ var info = kind==='reading' ? readingTaskInfo(item.taskType) : listeningTaskInfo
 /* 필기 화면에서 바로 문제 내용을 고칠 수 있게 */
 function leaveAnalysis(){
 detachAnnotShortcuts();
+closeToolDock();
 }
 var editBtn=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 내용 수정</button>');
 var editHolder=el('<div style="margin-bottom:12px;"></div>');
@@ -3226,7 +3278,33 @@ g.appendChild(el('<kbd class="kbd">'+MOD_KEY+'+'+k[0]+'</kbd>'));
 g.appendChild(document.createTextNode(k[1]));
 scBar.appendChild(g);
 });
+/* 드래그가 안 먹힐 때를 위한 수동 도구 창.
+   applyFormat·addNote·getActiveZone 은 함수 선언이라 아래에 있어도
+   누르는 시점에는 이미 준비돼 있어요. */
+var dockCtl=null;
+var dockBtn=el('<button class="btn small" style="margin-left:auto;">🎨 도구 창</button>');
+function refreshDockBtn(){ dockBtn.textContent = TOOLDOCK_OPEN ? '도구 창 닫기' : '🎨 도구 창'; }
+function needSel(){
+if(getActiveZone()) return true;
+if(dockCtl) dockCtl.say('먼저 글자를 드래그해서 골라주세요.');
+return false;
+}
+function openDockHere(){
+dockCtl=openToolDock({
+onFormat:function(type,color){ if(!needSel()) return; applyFormat(type,color); dockCtl.say('적용했어요.'); },
+onNote:function(){ if(!needSel()) return; addNote(); dockCtl.say('메모를 추가했어요.'); },
+onClose:function(){ refreshDockBtn(); }
+});
+refreshDockBtn();
+}
+dockBtn.onclick=function(){
+if(TOOLDOCK_OPEN){ TOOLDOCK_OPEN=false; closeToolDock(); refreshDockBtn(); return; }
+openDockHere();
+};
+scBar.appendChild(dockBtn);
 card.appendChild(scBar);
+/* 필기 화면을 다시 열어도 켜둔 상태를 기억해요 */
+if(TOOLDOCK_OPEN) setTimeout(openDockHere, 0); else refreshDockBtn();
 
 function getAnnotEntry(id){
 var v=ANNOTATIONS[id];
@@ -3287,11 +3365,13 @@ g.appendChild(el('<span class="muted" style="font-size:12px;">'+label+'</span>')
 g.appendChild(picker.wrap);
 return g;
 }
+/* 색 고르는 줄과 버튼 줄은 화면에 붙이지 않아요.
+   드래그하면 뜨는 창과 옆 도구 창으로 대체했습니다.
+   픽커 객체 자체는 단축키(Ctrl+H 등)가 기본 색을 읽는 데 계속 씁니다. */
 toolbar.appendChild(colorGroup('형광펜 색', hlPicker));
 toolbar.appendChild(colorGroup('밑줄 색', ulPicker));
 toolbar.appendChild(colorGroup('네모박스 색', boxPicker));
 toolbar.appendChild(colorGroup('메모 색', notePicker));
-card.appendChild(toolbar);
 
 var toolbar2=el('<div class="row" style="margin-bottom:12px;align-items:center;gap:8px;flex-wrap:wrap;"></div>');
 var highlightBtn=el('<button class="btn small">형광펜</button>');
@@ -3300,8 +3380,9 @@ var boxBtn=el('<button class="btn small">네모박스</button>');
 var noteBtn=el('<button class="btn small">메모 추가</button>');
 var addWordBtn=el('<button class="btn small">단어장에 추가</button>');
 var clearAllBtn=el('<button class="btn small danger" style="margin-left:auto;">이 문제 서식·메모 전체 지우기</button>');
-toolbar2.appendChild(highlightBtn); toolbar2.appendChild(underlineBtn); toolbar2.appendChild(boxBtn); toolbar2.appendChild(noteBtn); toolbar2.appendChild(addWordBtn); toolbar2.appendChild(clearAllBtn);
-card.appendChild(toolbar2);
+toolbar2.appendChild(highlightBtn); toolbar2.appendChild(underlineBtn); toolbar2.appendChild(boxBtn); toolbar2.appendChild(noteBtn); toolbar2.appendChild(addWordBtn);
+clearAllBtn.style.marginLeft='0';
+scBar.appendChild(clearAllBtn);
 var clearConfirmPending=false;
 var clearConfirmTimer=null;
 clearAllBtn.onclick=function(){
