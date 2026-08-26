@@ -114,6 +114,13 @@ textarea::placeholder,input::placeholder{color:var(--text-3);}
 .examleft{flex:1 1 400px;max-width:480px;}
 .examright{flex:1 1 320px;}
 .formcard{border:1px dashed var(--border-strong);box-shadow:none;background:transparent;}
+/* 제목이 글자로만 보여서 어디를 눌러야 할지 헷갈렸어요. 줄 전체가 버튼입니다. */
+.addhead{cursor:pointer;border-radius:8px;padding:4px 6px;margin:-4px -6px;
+transition:background .14s ease;user-select:none;}
+.addhead:hover{background:var(--accent-bg);}
+.addhead:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.addhead h3{transition:color .14s ease;}
+.addhead:hover h3{color:var(--accent-text);}
 .optrow{display:flex;gap:8px;align-items:center;margin-bottom:6px;}
 .optrow input[type=text]{flex:1;}
 .annot-notetext:empty:before{content:attr(data-placeholder);color:var(--text-3);}
@@ -1672,10 +1679,13 @@ return ADD_PANEL[kind];
 function buildAddPanel(kind, label, formBuilder){
 var st=addState(kind);
 var card=el('<div class="card formcard" style="margin-bottom:18px;"></div>');
-var head=el('<div class="row" style="justify-content:space-between;"></div>');
+var head=el('<div class="row addhead" style="justify-content:space-between;"></div>');
 head.appendChild(el('<h3 style="margin:0;">+ '+label+' 추가</h3>'));
-var toggle=el('<button class="btn small">'+(st.open?'닫기':'열기')+'</button>');
+var toggle=el('<button class="btn small" tabindex="-1">'+(st.open?'닫기':'열기')+'</button>');
 head.appendChild(toggle);
+head.setAttribute('role','button');
+head.setAttribute('tabindex','0');
+head.setAttribute('aria-expanded', st.open?'true':'false');
 card.appendChild(head);
 
 var body=el('<div style="margin-top:12px;'+(st.open?'':'display:none;')+'"></div>');
@@ -1755,11 +1765,17 @@ b.dataset.tab=t.id;
 b.onclick=function(){ st.tab=t.id; st.msg=''; status.textContent=''; renderPane(); };
 tabsRow.appendChild(b);
 });
-toggle.onclick=function(){
+/* 버튼을 눌러도 이 핸들러로 올라와요(버튼에는 따로 안 검) */
+function toggleOpen(){
 st.open=!st.open;
 body.style.display=st.open?'block':'none';
 toggle.textContent=st.open?'닫기':'열기';
-};
+head.setAttribute('aria-expanded', st.open?'true':'false');
+}
+head.onclick=toggleOpen;
+head.addEventListener('keydown', function(e){
+if(e.key==='Enter' || e.key===' ' || e.key==='Spacebar'){ e.preventDefault(); toggleOpen(); }
+});
 renderPane();
 return card;
 }
@@ -4835,7 +4851,13 @@ CW_DRILL=null;
 msg.textContent=added+'개 추가했어요.'+(dup?(' '+dup+'개는 이미 있어요.'):'');
 wIn.value='';
 rerender();
+/* 연달아 넣을 수 있게 입력칸으로 돌아가요 */
+setTimeout(function(){
+var again=document.querySelector('#panel-reading input[placeholder*="committee"]');
+if(again) try{ again.focus(); }catch(e){}
+}, 0);
 };
+wIn.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); okBtn.click(); } });
 addBox.appendChild(wIn); addBox.appendChild(okBtn); addBox.appendChild(msg);
 card.appendChild(addBox);
 }
@@ -4891,9 +4913,9 @@ var fb=el('<p class="muted" style="margin:10px 0 0;min-height:18px;"></p>');
 quiz.appendChild(fb);
 
 var btnRow=el('<div class="row" style="margin-top:10px;justify-content:center;gap:8px;"></div>');
+/* 확인과 다음을 한 버튼으로. 채점하면 글씨가 '다음'으로 바뀌어요 */
 var checkBtn=el('<button class="btn primary small">확인</button>');
-var nextBtn=el('<button class="btn small">다음</button>');
-btnRow.appendChild(checkBtn); btnRow.appendChild(nextBtn);
+btnRow.appendChild(checkBtn);
 quiz.appendChild(btnRow);
 quiz.appendChild(el('<p class="muted" style="margin:8px 0 0;font-size:12px;">'+(CW_DRILL.idx+1)+' / '+CW_DRILL.order.length+'</p>'));
 
@@ -4920,10 +4942,11 @@ fb.textContent='정답: '+cur.word;
 fb.style.color='var(--red)';
 }
 saveData();
-checkBtn.textContent='다음 단어';
+checkBtn.textContent='다음';
+/* 입력칸이 잠기면 엔터를 못 받으니 버튼으로 초점을 옮겨요 */
+setTimeout(function(){ try{ checkBtn.focus(); }catch(e){} }, 0);
 }
 checkBtn.onclick=doCheck;
-nextBtn.onclick=goNext;
 inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); doCheck(); } });
 
 card.appendChild(quiz);
