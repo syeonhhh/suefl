@@ -388,6 +388,12 @@ background:var(--card);border:1px solid var(--border-strong);border-radius:10px;
 position:sticky;top:8px;z-index:20;}
 .mock-clock{font-variant-numeric:tabular-nums;font-size:19px;font-weight:700;letter-spacing:.02em;}
 
+/* 모바일은 선택한 자리 위에 손잡이·복사 메뉴가 떠서 자리가 없어요.
+   그래서 화면 아래쪽에 가로로 붙입니다. */
+.selpop.selpop-bottom{left:8px;right:8px;top:auto;bottom:10px;max-width:none;
+padding:10px 12px;}
+.selpop.selpop-bottom .selpop-row{justify-content:flex-start;}
+
 /* 드래그가 안 먹힐 때 옆에 띄워두고 쓰는 도구 창 */
 .tooldock{position:fixed;right:14px;top:50%;transform:translateY(-50%);z-index:8500;
 background:var(--card);border:1px solid var(--border-strong);border-radius:12px;
@@ -3082,6 +3088,25 @@ if(ANNOT_SHORTCUT){ document.removeEventListener('keydown', ANNOT_SHORTCUT); ANN
    문제 푸는 화면은 단어장만. 등록된 영역 안에서 드래그할 때만 뜹니다. */
 var SEL_ROOTS=[];
 var SELPOP=null;
+/* 손가락으로 쓰는 기기인지 */
+var IS_TOUCH = (typeof window!=='undefined') &&
+  (('ontouchstart' in window) || (navigator.maxTouchPoints||0) > 0);
+/* 모바일에서는 도구를 누르는 순간 선택이 풀려버려요.
+   마지막으로 고른 범위를 기억해뒀다가 되살립니다. */
+var LAST_SEL=null;
+function rememberSelection(range, zone, text){
+try{ LAST_SEL={range:range.cloneRange(), zone:zone, text:text}; }catch(e){ LAST_SEL=null; }
+}
+function restoreSelection(){
+if(!LAST_SEL || !document.body.contains(LAST_SEL.zone)) return null;
+try{
+var sel=window.getSelection();
+sel.removeAllRanges();
+sel.addRange(LAST_SEL.range);
+return {sel:sel, range:LAST_SEL.range, zone:LAST_SEL.zone};
+}catch(e){ return null; }
+}
+function lastSelText(){ return LAST_SEL ? LAST_SEL.text : ''; }
 function registerSelTools(root, opts){
 if(!root) return;
 /* 아직 화면에 붙기 전에 등록되므로 여기서 detach 여부를 보면 안 돼요.
@@ -3101,6 +3126,14 @@ return SELPOP;
 function hideSelPop(){ if(SELPOP) SELPOP.style.display='none'; }
 function placeSelPop(rect){
 var pop=selPopEl();
+if(IS_TOUCH){
+/* 좌표 계산 없이 아래쪽에 고정 */
+pop.classList.add('selpop-bottom');
+pop.style.left=''; pop.style.top='';
+pop.style.display='block'; pop.style.visibility='visible';
+return;
+}
+pop.classList.remove('selpop-bottom');
 pop.style.visibility='hidden'; pop.style.display='block'; pop.style.left='0px'; pop.style.top='0px';
 var w=pop.offsetWidth, h=pop.offsetHeight;
 var left=Math.max(8, Math.min(window.innerWidth-w-8, rect.left+rect.width/2-w/2));
@@ -3145,7 +3178,7 @@ nb.onclick=function(){ opts.onNote(); };
 actRow.appendChild(nb);
 }
 var wb=el('<button type="button" class="selpop-act">＋ 단어장</button>');
-wb.onclick=function(){ quickAddWord(getText(), onMsg); };
+wb.onclick=function(){ quickAddWord(getText() || lastSelText(), onMsg); };
 actRow.appendChild(wb);
 container.appendChild(actRow);
 }
@@ -3219,23 +3252,33 @@ onMsg('단어장에 추가했어요. 뜻은 단어 탭에서 채워주세요.');
 }
 }
 
-document.addEventListener('mouseup', function(){
-setTimeout(function(){
+function checkSelectionForTools(){
 var sel=window.getSelection();
 if(!sel || !sel.rangeCount || sel.isCollapsed){ hideSelPop(); return; }
 var txt=sel.toString().trim();
 if(!txt){ hideSelPop(); return; }
-var node=sel.getRangeAt(0).commonAncestorContainer;
+var range=sel.getRangeAt(0);
+var node=range.commonAncestorContainer;
 var elNode=node.nodeType===1?node:node.parentNode;
 SEL_ROOTS=SEL_ROOTS.filter(function(r){ return document.body.contains(r.root); });
 var hit=null;
 SEL_ROOTS.forEach(function(r){ if(!hit && r.root.contains(elNode)) hit=r; });
 if(!hit){ hideSelPop(); return; }
+rememberSelection(range, hit.root, txt);
 buildSelPop(hit.opts, txt);
-placeSelPop(sel.getRangeAt(0).getBoundingClientRect());
-}, 0);
+placeSelPop(range.getBoundingClientRect());
+}
+document.addEventListener('mouseup', function(){ setTimeout(checkSelectionForTools, 0); });
+/* 모바일은 길게 눌러 고르기 때문에 mouseup 이 안 떠요.
+   selectionchange 는 손잡이를 끌 때도 계속 떠서 이게 유일하게 믿을 만합니다.
+   끄는 도중 깜빡이지 않게 잠깐 기다렸다 확인해요. */
+var selTimer=null;
+document.addEventListener('selectionchange', function(){
+if(selTimer) clearTimeout(selTimer);
+selTimer=setTimeout(checkSelectionForTools, 220);
 });
-document.addEventListener('scroll', hideSelPop, true);
+/* 손가락으로 쓸 땐 스크롤이 잦아서 그때마다 닫으면 못 씁니다 */
+if(!IS_TOUCH) document.addEventListener('scroll', hideSelPop, true);
 document.addEventListener('keydown', function(e){ if(e.key==='Escape') hideSelPop(); });
 
 function renderAnalysisView(item, kind){
@@ -3327,11 +3370,15 @@ return null;
 }
 function getActiveZone(){
 var sel=window.getSelection();
-if(!sel.rangeCount || sel.isCollapsed) return null;
+if(sel && sel.rangeCount && !sel.isCollapsed){
 var range=sel.getRangeAt(0);
 var zone=zoneForNode(range.commonAncestorContainer);
-if(!zone) return null;
-return {sel:sel, range:range, zone:zone};
+if(zone) return {sel:sel, range:range, zone:zone};
+}
+/* 모바일에서는 도구를 누르는 순간 선택이 풀려요. 기억해둔 걸 되살립니다. */
+var back=restoreSelection();
+if(back && zoneForNode(back.range.commonAncestorContainer)) return back;
+return null;
 }
 
 function buildSwatchPicker(colors, allowCustom){
@@ -3507,6 +3554,7 @@ if(!merged) break;
 
 /* 편집 후 마무리 — 빈 span 정리 → 텍스트 노드 병합 → span 병합 → 박스 테두리 → 저장 */
 function finishZoneEdit(zoneEl){
+LAST_SEL=null;   /* DOM이 바뀌어 기억해둔 범위는 더 이상 못 씀 */
 dropGhostNotes(zoneEl);
 cleanupEmptySpans(zoneEl);
 try{ zoneEl.normalize(); }catch(e){}
