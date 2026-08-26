@@ -2195,7 +2195,16 @@ function stripBlankMarkers(text){ return String(text||'').replace(/\[\[([^\]]+)\
    태그가 나오기 전의 맨 앞부분만 봅니다. */
 function stripSavedQNum(html){
 if(!html) return html;
-return String(html).replace(/^\s*Q[^.<]{0,10}\.\s*/, '');
+/* 'Q08.' 뿐 아니라 뒤에 남은 점·공백까지 한꺼번에 떼요.
+   숫자가 하나라도 있어야 번호로 보므로 'Question. ' 같은 글은 건드리지 않습니다. */
+return String(html).replace(/^\s*Q(?=[0-9A-Za-z-]{0,8}[0-9])[0-9A-Za-z-]{1,8}\.[.\s]*/, '');
+}
+
+/* 번호를 따로 그릴 때, 뒤따르는 글 앞에 점이나 공백이 남아 있으면 떼요.
+   'Q08.' + '. [Rhetorical...]' 처럼 점이 두 번 보이는 걸 막습니다. */
+function stripLeadingDots(html){
+if(!html) return html;
+return String(html).replace(/^[.\s]+/, '');
 }
 
 function markBlanksForNotes(text){
@@ -3805,7 +3814,9 @@ var numLab=questionNumLabel(qq, qi);
 if(numLab) qHead.appendChild(el('<span style="color:var(--text-2);margin-right:4px;">Q'+escapeHtml(numLab)+'.</span>'));
 var qTextDiv=el('<span style="font-weight:600;line-height:1.6;"></span>');
 qTextDiv.dataset.zoneKey=qZoneKey;
-qTextDiv.innerHTML = stripSavedQNum(annotEntry.opts[qZoneKey]) || escapeHtml(qq.q||'');
+var qBody = stripSavedQNum(annotEntry.opts[qZoneKey]) || escapeHtml(qq.q||'');
+if(numLab) qBody = stripLeadingDots(qBody);
+qTextDiv.innerHTML = qBody;
 qHead.appendChild(qTextDiv);
 qBlock.appendChild(qHead);
 cleanupEmptySpans(qTextDiv);
