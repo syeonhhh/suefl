@@ -3412,6 +3412,58 @@ span.style.borderRadius=(span.dataset.hl||span.dataset.box)?'2px':'';
 }
 /* 네모박스가 다른 서식 때문에 여러 span으로 쪼개져도 하나로 보이게.
    같은 boxgroup끼리 맞닿은 쪽 테두리를 없앱니다. */
+/* 메모는 「단어 + ● + 메모글」이 한 덩어리예요. 선택이 그 가운데를 가로지르면
+   extractContents()가 덩어리를 두 조각으로 쪼개서, 메모 없는 유령 조각이 생기고
+   메모 글자가 지문으로 새어 나옵니다. 그래서 걸친 메모는 통째로 포함시켜요. */
+function expandRangeOverNotes(range, zone){
+function wrapOf(node){
+var n = (node && node.nodeType===1) ? node : (node ? node.parentNode : null);
+while(n && n!==zone && !(n.classList && n.classList.contains('annot-wrap'))) n=n.parentNode;
+return (n && n!==zone && n.classList && n.classList.contains('annot-wrap')) ? n : null;
+}
+var a=wrapOf(range.startContainer);
+if(a) range.setStartBefore(a);
+var b=wrapOf(range.endContainer);
+if(b) range.setEndAfter(b);
+return range;
+}
+
+/* 메모가 달린 단어에도 형광펜·밑줄·네모를 칠할 수 있게.
+   메모 덩어리는 통째로 옮겨지므로 안쪽 단어에 직접 서식을 넣습니다. */
+function applyFmtInsideNote(noteEl, type, color, gid){
+var wordEl=noteEl.querySelector ? noteEl.querySelector('.annot-word') : null;
+if(!wordEl) return;
+var only = (wordEl.childNodes.length===1 && wordEl.firstChild.nodeType===1
+            && wordEl.firstChild.dataset && wordEl.firstChild.dataset.annot==='fmt')
+           ? wordEl.firstChild : null;
+var span=only;
+if(!span){
+span=document.createElement('span');
+span.dataset.annot='fmt';
+while(wordEl.firstChild) span.appendChild(wordEl.firstChild);
+wordEl.appendChild(span);
+}
+span.dataset[type]=color;
+if(gid && type==='box') span.dataset.boxgroup=gid;
+styleForSpan(span);
+}
+
+/* 메모 글은 없는데 껍데기만 남은 덩어리를 풀어줘요.
+   예전에 쪼개져서 생긴 것도 화면을 그릴 때 자동으로 정리됩니다. */
+function dropGhostNotes(zoneEl){
+Array.prototype.forEach.call(zoneEl.querySelectorAll('.annot-wrap'), function(wrap){
+if(wrap.querySelector('.annot-notetext')) return;
+var parent=wrap.parentNode;
+if(!parent) return;
+var wd=wrap.querySelector('.annot-word');
+var frag=document.createDocumentFragment();
+if(wd){ while(wd.firstChild) frag.appendChild(wd.firstChild); }
+else { while(wrap.firstChild) frag.appendChild(wrap.firstChild); }
+parent.insertBefore(frag, wrap);
+parent.removeChild(wrap);
+});
+}
+
 function refreshBoxGroups(zoneEl){
 var spans=zoneEl.querySelectorAll('span[data-box]');
 Array.prototype.forEach.call(spans, function(sp){
@@ -3455,6 +3507,7 @@ if(!merged) break;
 
 /* 편집 후 마무리 — 빈 span 정리 → 텍스트 노드 병합 → span 병합 → 박스 테두리 → 저장 */
 function finishZoneEdit(zoneEl){
+dropGhostNotes(zoneEl);
 cleanupEmptySpans(zoneEl);
 try{ zoneEl.normalize(); }catch(e){}
 mergeAdjacentFmtSpans(zoneEl);
@@ -3685,6 +3738,14 @@ function addNote(){
 var ctx=getActiveZone();
 if(!ctx){ showStatus('먼저 지문 또는 선지에서 문장을 드래그해서 선택해주세요.', true); return; }
 var sel=ctx.sel, range=ctx.range, zone=ctx.zone;
+expandRangeOverNotes(range, zone);
+/* 이미 메모가 달린 자리에 또 달면 덩어리가 겹쳐요 */
+var already=null;
+try{
+var probe=range.cloneContents();
+if(probe.querySelector && probe.querySelector('.annot-wrap')) already=true;
+}catch(e){}
+if(already){ showStatus('이미 메모가 달린 부분이에요. 그 메모를 눌러서 고쳐 쓰거나 지운 뒤에 다시 해주세요.', true); return; }
 var color=notePicker.get();
 var wrap=document.createElement('span');
 wrap.className='annot-wrap';
@@ -3748,6 +3809,7 @@ function applyFormat(type, color){
 var ctx=getActiveZone();
 if(!ctx){ showStatus('먼저 지문 또는 선지에서 문장을 드래그해서 선택해주세요.', true); return; }
 var sel=ctx.sel, range=ctx.range, zone=ctx.zone;
+expandRangeOverNotes(range, zone);
 var frag;
 try{ frag=range.extractContents(); }catch(e){ showStatus('선택한 영역에 서식을 적용할 수 없어요.', true); return; }
 var pieces=flattenExtracted(frag);
@@ -3755,7 +3817,7 @@ var pieces=flattenExtracted(frag);
    같은 그룹이면 테두리를 이어붙여 한 덩어리로 보이게 합니다. */
 var gid = (type==='box') ? ('bg'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)) : null;
 pieces.forEach(function(p){
-if(p.note) return;
+if(p.note){ applyFmtInsideNote(p.note, type, color, gid); return; }
 p[type]=color;
 if(gid) p.boxgroup=gid;
 });
@@ -3808,9 +3870,20 @@ pendingEraseSpan=span;
 function removeFormat(span, key, zoneEl){
 var parent=span.parentNode;
 if(key==='note'){
+/* 단어 안의 서식은 살리고, ● 표시와 메모 글자만 걷어냅니다.
+   예전에는 단어 조각이 없으면 span 전체 텍스트를 넣어서
+   메모 글자가 지문에 섞여 들어갔어요. */
 var wordEl=span.querySelector('.annot-word');
-var textNode=document.createTextNode(wordEl?wordEl.textContent:span.textContent);
-parent.insertBefore(textNode, span);
+var frag=document.createDocumentFragment();
+if(wordEl){ while(wordEl.firstChild) frag.appendChild(wordEl.firstChild); }
+else {
+var clone=span.cloneNode(true);
+Array.prototype.forEach.call(clone.querySelectorAll('.annot-notetext,.annot-notemark'), function(n){
+if(n.parentNode) n.parentNode.removeChild(n);
+});
+while(clone.firstChild) frag.appendChild(clone.firstChild);
+}
+parent.insertBefore(frag, span);
 parent.removeChild(span);
 } else if(key==='legacy'){
 while(span.firstChild) parent.insertBefore(span.firstChild, span);
@@ -3838,7 +3911,13 @@ var parent=wrapEl.parentNode;
 if(!parent) return;
 var wordEl=wrapEl.querySelector('.annot-word');
 if(wordEl){ while(wordEl.firstChild) parent.insertBefore(wordEl.firstChild, wrapEl); }
-else { parent.insertBefore(document.createTextNode(wrapEl.textContent||''), wrapEl); }
+else {
+var c=wrapEl.cloneNode(true);
+Array.prototype.forEach.call(c.querySelectorAll('.annot-notetext,.annot-notemark'), function(n){
+if(n.parentNode) n.parentNode.removeChild(n);
+});
+while(c.firstChild) parent.insertBefore(c.firstChild, wrapEl);
+}
 parent.removeChild(wrapEl);
 finishZoneEdit(zoneEl);
 }
@@ -3871,6 +3950,8 @@ bindNoteEditing(n, zoneEl);
 }
 
 function attachZoneClickHandler(zoneEl){
+/* 예전에 쪼개져 저장된 유령 조각을 화면을 열 때 정리해요 */
+dropGhostNotes(zoneEl);
 rebindNotes(zoneEl);
 /* 이 영역에서 드래그하면 서식·메모·단어장 도구가 그 자리에 떠요 */
 registerSelTools(zoneEl, {
