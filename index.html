@@ -3753,20 +3753,30 @@ parent.removeChild(wrap);
 });
 }
 
+function setBoxEdges(sp, first, last){
+sp.style.borderLeftWidth  = first?'2px':'0';
+sp.style.borderRightWidth = last?'2px':'0';
+sp.style.paddingLeft  = first?'2px':'0';
+sp.style.paddingRight = last?'2px':'0';
+sp.style.borderTopLeftRadius = sp.style.borderBottomLeftRadius = first?'2px':'0';
+sp.style.borderTopRightRadius = sp.style.borderBottomRightRadius = last?'2px':'0';
+}
 function refreshBoxGroups(zoneEl){
-var spans=zoneEl.querySelectorAll('span[data-box]');
+/* 같은 회차에 친 네모박스는 한 덩어리예요.
+   예전에는 바로 옆 형제인지만 봐서, 메모가 중간에 끼면(부모가 달라짐)
+   이웃인 줄 모르고 상자를 따로 그렸습니다.
+   이제는 그룹별로 묶어 맨 앞·맨 뒤에만 테두리를 남깁니다. */
+var spans=zoneEl.querySelectorAll('span[data-box]');   /* 문서 순서로 나와요 */
+var groups={}, order=[];
 Array.prototype.forEach.call(spans, function(sp){
 var g=sp.dataset.boxgroup;
-function joined(n){
-return !!(g && n && n.nodeType===1 && n.dataset && n.dataset.box===sp.dataset.box && n.dataset.boxgroup===g);
-}
-var L=joined(sp.previousSibling), R=joined(sp.nextSibling);
-sp.style.borderLeftWidth  = L?'0':'2px';
-sp.style.borderRightWidth = R?'0':'2px';
-sp.style.paddingLeft  = L?'0':'2px';
-sp.style.paddingRight = R?'0':'2px';
-sp.style.borderTopLeftRadius = sp.style.borderBottomLeftRadius = L?'0':'2px';
-sp.style.borderTopRightRadius = sp.style.borderBottomRightRadius = R?'0':'2px';
+if(!g){ setBoxEdges(sp, true, true); return; }
+if(!groups[g]){ groups[g]=[]; order.push(g); }
+groups[g].push(sp);
+});
+order.forEach(function(g){
+var list=groups[g];
+list.forEach(function(sp, i){ setBoxEdges(sp, i===0, i===list.length-1); });
 });
 }
 
