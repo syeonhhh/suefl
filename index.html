@@ -1987,6 +1987,7 @@ TABS.forEach(function(t){ var p=document.createElement('div'); p.className='pane
 
 /* ================= VOCAB ================= */
 var vocabIdx=0, vocabFlipped=false;
+var VOCAB_LIST_OPEN=false;
 function renderVocab(){
 var panel=document.getElementById('panel-vocab'); panel.innerHTML='';
 panel.appendChild(buildAddPanel('vocab','단어', buildVocabForm));
@@ -2029,7 +2030,28 @@ panel.appendChild(el('<div id="vocab-quiz-area"></div>'));
 panel.appendChild(el('<div class="card"><p class="muted">등록된 단어가 없어요. 아래에서 추가해보세요.</p></div>'));
 }
 
-var listCard=el('<div class="card"><h3>단어 목록 관리</h3></div>');
+/* 목록이 길어서 평소엔 접어둬요. 버튼을 누르면 펼쳐집니다. */
+var listCard=el('<div class="card"></div>');
+var listHead=el('<div class="row addhead" style="justify-content:space-between;"></div>');
+listHead.appendChild(el('<h3 style="margin:0;">전체 단어 <span class="muted" style="font-weight:400;font-size:13px;">'+DATA.vocab.length+'개</span></h3>'));
+var listToggle=el('<button class="btn small" tabindex="-1">'+(VOCAB_LIST_OPEN?'닫기':'열기')+'</button>');
+listHead.appendChild(listToggle);
+listHead.setAttribute('role','button');
+listHead.setAttribute('tabindex','0');
+listHead.setAttribute('aria-expanded', VOCAB_LIST_OPEN?'true':'false');
+listCard.appendChild(listHead);
+var listBody=el('<div style="margin-top:10px;'+(VOCAB_LIST_OPEN?'':'display:none;')+'"></div>');
+listCard.appendChild(listBody);
+function toggleVocabList(){
+VOCAB_LIST_OPEN=!VOCAB_LIST_OPEN;
+listBody.style.display=VOCAB_LIST_OPEN?'block':'none';
+listToggle.textContent=VOCAB_LIST_OPEN?'닫기':'열기';
+listHead.setAttribute('aria-expanded', VOCAB_LIST_OPEN?'true':'false');
+}
+listHead.onclick=toggleVocabList;
+listHead.addEventListener('keydown', function(e){
+if(e.key==='Enter' || e.key===' ' || e.key==='Spacebar'){ e.preventDefault(); toggleVocabList(); }
+});
 DATA.vocab.forEach(function(v){
 var item=el('<div class="listitem" style="align-items:flex-start;"></div>');
 var infoWrap=el('<div style="flex:1;"></div>');
@@ -2052,8 +2074,9 @@ item.appendChild(kebabMenu([
 {label:v.image?'사진 변경/삭제':'사진 추가', onClick:function(){ imgCtl.open(); }},
 {label:'삭제', danger:true, onClick:function(){ markDeleted(v.id); DATA.vocab=DATA.vocab.filter(function(x){return x.id!==v.id;}); saveData(); vocabIdx=0; renderVocab(); }}
 ]));
-listCard.appendChild(item);
+listBody.appendChild(item);
 });
+if(DATA.vocab.length===0) listBody.appendChild(el('<p class="muted" style="margin:0;">아직 등록된 단어가 없어요.</p>'));
 panel.appendChild(buildPrepDrill(renderVocab));
 panel.appendChild(listCard);
 
