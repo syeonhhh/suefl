@@ -2216,6 +2216,13 @@ if(!html) return html;
 return String(html).replace(/^[.\s]+/, '');
 }
 
+/* 번호를 앞에 따로 붙일 때, 본문이 '07. ' 처럼 또 번호로 시작하면 떼요.
+   'Q07. 07. [Fact Question]' 처럼 두 번 보이지 않게 합니다. */
+function stripLeadingNumText(html){
+if(!html) return html;
+return String(html).replace(/^\s*\(?\d{1,3}\s*[.)\]]\s*/, '');
+}
+
 function markBlanksForNotes(text){
 return String(text||'').replace(/\[\[([^\]]+)\]\]/g, function(m, a){ return '['+a.trim()+']'; });
 }
@@ -2382,16 +2389,48 @@ var explIn=el('<textarea placeholder="해설 (선택) - 정답 풀이를 적어�
 row.appendChild(explIn);
 var explImgCtrl=imageFieldControl(null, function(){}, '해설 사진 (선택)');
 row.appendChild(explImgCtrl.wrapper);
-var rmBtn=el('<button class="btn small danger">이 문제 삭제</button>');
+var moveRow=el('<div class="row" style="gap:4px;align-items:center;flex-wrap:wrap;"></div>');
+var upBtn=el('<button class="btn small" title="위로">▲</button>');
+var downBtn=el('<button class="btn small" title="아래로">▼</button>');
+upBtn.onclick=function(){ shiftRow(row, -1); };
+downBtn.onclick=function(){ shiftRow(row, 1); };
+var rmBtn=el('<button class="btn small danger" style="margin-left:auto;">이 문제 삭제</button>');
 rmBtn.onclick=function(){ row.remove(); rows=rows.filter(function(r){return r.row!==row;}); };
-row.appendChild(rmBtn);
+moveRow.appendChild(upBtn); moveRow.appendChild(downBtn); moveRow.appendChild(rmBtn);
+row.appendChild(moveRow);
 qList.appendChild(row);
 rows.push({row:row,qIn:qIn,optInputs:optInputs,qImgCtrl:qImgCtrl,explIn:explIn,explImgCtrl:explImgCtrl});
 }
 addRow();
+/* 화면과 배열을 함께 옮겨요. 저장할 때 이 순서 그대로 들어갑니다. */
+function reflowRows(){ rows.forEach(function(r){ qList.appendChild(r.row); }); }
+function shiftRow(row, dir){
+var i=-1, k;
+for(k=0;k<rows.length;k++){ if(rows[k].row===row){ i=k; break; } }
+if(i<0) return;
+var j=i+dir;
+if(j<0 || j>=rows.length) return;
+var t=rows[i]; rows[i]=rows[j]; rows[j]=t;
+reflowRows();
+}
+/* 번호칸이 비어 있으면 질문 앞의 숫자를 봐요 */
+function rowNum(r){
+var v=(r.numIn && r.numIn.value ? r.numIn.value : '').trim();
+if(!v){
+var m=(r.qIn.value||'').match(/^\s*\(?(\d{1,3})/);
+v=m?m[1]:'';
+}
+var n=parseInt(v,10);
+return isNaN(n) ? 9999 : n;
+}
+var sortBtn=el('<button class="btn small" style="margin-left:6px;">번호순 정렬</button>');
+sortBtn.onclick=function(){
+rows.sort(function(a,b){ return rowNum(a)-rowNum(b); });
+reflowRows();
+};
 var addQBtn=el('<button class="btn small">+ 질문 추가</button>');
 addQBtn.onclick=addRow;
-bodyHolder.appendChild(addQBtn);
+bodyHolder.appendChild(addQBtn); bodyHolder.appendChild(sortBtn);
 var saveBtn2=el('<button class="btn primary" style="margin-left:8px;margin-top:8px;">저장</button>');
 saveBtn2.onclick=function(){
 if(!textIn2.value.trim() && !passageImgCtrl.get()){ inlineWarn(this, '본문 텍스트나 사진 중 하나는 필요해요.'); return; }
@@ -2464,17 +2503,49 @@ optInputs.push({radio:radio,input:optIn});
 var explIn=el('<textarea placeholder="해설 (선택)" style="min-height:60px;margin-top:6px;margin-bottom:6px;"></textarea>');
 explIn.value=qData?(qData.explanation||''):'';
 row.appendChild(explIn);
-var rmBtn=el('<button class="btn small danger">이 문제 삭제</button>');
+var moveRow=el('<div class="row" style="gap:4px;align-items:center;flex-wrap:wrap;"></div>');
+var upBtn=el('<button class="btn small" title="위로">▲</button>');
+var downBtn=el('<button class="btn small" title="아래로">▼</button>');
+upBtn.onclick=function(){ shiftRow(row, -1); };
+downBtn.onclick=function(){ shiftRow(row, 1); };
+var rmBtn=el('<button class="btn small danger" style="margin-left:auto;">이 문제 삭제</button>');
 rmBtn.onclick=function(){ row.remove(); rows=rows.filter(function(r){return r.row!==row;}); };
-row.appendChild(rmBtn);
+moveRow.appendChild(upBtn); moveRow.appendChild(downBtn); moveRow.appendChild(rmBtn);
+row.appendChild(moveRow);
 qList.appendChild(row);
 rows.push({row:row,numIn:numIn,qIn:qIn,optInputs:optInputs,explIn:explIn,orig:qData});
 }
 (item.questions||[]).forEach(function(q){ addRow(q); });
 if(rows.length===0) addRow(null);
+/* 화면과 배열을 함께 옮겨요. 저장할 때 이 순서 그대로 들어갑니다. */
+function reflowRows(){ rows.forEach(function(r){ qList.appendChild(r.row); }); }
+function shiftRow(row, dir){
+var i=-1, k;
+for(k=0;k<rows.length;k++){ if(rows[k].row===row){ i=k; break; } }
+if(i<0) return;
+var j=i+dir;
+if(j<0 || j>=rows.length) return;
+var t=rows[i]; rows[i]=rows[j]; rows[j]=t;
+reflowRows();
+}
+/* 번호칸이 비어 있으면 질문 앞의 숫자를 봐요 */
+function rowNum(r){
+var v=(r.numIn && r.numIn.value ? r.numIn.value : '').trim();
+if(!v){
+var m=(r.qIn.value||'').match(/^\s*\(?(\d{1,3})/);
+v=m?m[1]:'';
+}
+var n=parseInt(v,10);
+return isNaN(n) ? 9999 : n;
+}
+var sortBtn=el('<button class="btn small" style="margin-left:6px;">번호순 정렬</button>');
+sortBtn.onclick=function(){
+rows.sort(function(a,b){ return rowNum(a)-rowNum(b); });
+reflowRows();
+};
 var addQBtn=el('<button class="btn small">+ 질문 추가</button>');
 addQBtn.onclick=function(){ addRow(null); };
-box.appendChild(addQBtn);
+box.appendChild(addQBtn); box.appendChild(sortBtn);
 var warn2=el('<p class="muted" style="margin:6px 0 0;min-height:16px;"></p>');
 box.appendChild(warn2);
 var btnRow2=el('<div class="row" style="margin-top:4px;"></div>');
@@ -2705,16 +2776,48 @@ var explIn=el('<textarea placeholder="해설 (선택) - 정답 풀이를 적어�
 row.appendChild(explIn);
 var explImgCtrl=imageFieldControl(null, function(){}, '해설 사진 (선택)');
 row.appendChild(explImgCtrl.wrapper);
-var rmBtn=el('<button class="btn small danger">이 문제 삭제</button>');
+var moveRow=el('<div class="row" style="gap:4px;align-items:center;flex-wrap:wrap;"></div>');
+var upBtn=el('<button class="btn small" title="위로">▲</button>');
+var downBtn=el('<button class="btn small" title="아래로">▼</button>');
+upBtn.onclick=function(){ shiftRow(row, -1); };
+downBtn.onclick=function(){ shiftRow(row, 1); };
+var rmBtn=el('<button class="btn small danger" style="margin-left:auto;">이 문제 삭제</button>');
 rmBtn.onclick=function(){ row.remove(); rows=rows.filter(function(r){return r.row!==row;}); };
-row.appendChild(rmBtn);
+moveRow.appendChild(upBtn); moveRow.appendChild(downBtn); moveRow.appendChild(rmBtn);
+row.appendChild(moveRow);
 qList.appendChild(row);
 rows.push({row:row,qIn:qIn,optInputs:optInputs,qImgCtrl:qImgCtrl,explIn:explIn,explImgCtrl:explImgCtrl});
 }
 addRow();
+/* 화면과 배열을 함께 옮겨요. 저장할 때 이 순서 그대로 들어갑니다. */
+function reflowRows(){ rows.forEach(function(r){ qList.appendChild(r.row); }); }
+function shiftRow(row, dir){
+var i=-1, k;
+for(k=0;k<rows.length;k++){ if(rows[k].row===row){ i=k; break; } }
+if(i<0) return;
+var j=i+dir;
+if(j<0 || j>=rows.length) return;
+var t=rows[i]; rows[i]=rows[j]; rows[j]=t;
+reflowRows();
+}
+/* 번호칸이 비어 있으면 질문 앞의 숫자를 봐요 */
+function rowNum(r){
+var v=(r.numIn && r.numIn.value ? r.numIn.value : '').trim();
+if(!v){
+var m=(r.qIn.value||'').match(/^\s*\(?(\d{1,3})/);
+v=m?m[1]:'';
+}
+var n=parseInt(v,10);
+return isNaN(n) ? 9999 : n;
+}
+var sortBtn=el('<button class="btn small" style="margin-left:6px;">번호순 정렬</button>');
+sortBtn.onclick=function(){
+rows.sort(function(a,b){ return rowNum(a)-rowNum(b); });
+reflowRows();
+};
 var addQBtn=el('<button class="btn small">+ 질문 추가</button>');
 addQBtn.onclick=addRow;
-box.appendChild(addQBtn);
+box.appendChild(addQBtn); box.appendChild(sortBtn);
 var saveBtn=el('<button class="btn primary" style="margin-left:8px;margin-top:8px;">저장</button>');
 saveBtn.onclick=function(){
 if(!textIn.value.trim() && !scriptImgCtrl.get()){ inlineWarn(this, '스크립트나 사진 중 하나는 필요해요.'); return; }
@@ -2762,17 +2865,49 @@ optInputs.push({radio:radio,input:optIn});
 var explIn=el('<textarea placeholder="해설 (선택)" style="min-height:60px;margin-top:6px;margin-bottom:6px;"></textarea>');
 explIn.value=qData?(qData.explanation||''):'';
 row.appendChild(explIn);
-var rmBtn=el('<button class="btn small danger">이 문제 삭제</button>');
+var moveRow=el('<div class="row" style="gap:4px;align-items:center;flex-wrap:wrap;"></div>');
+var upBtn=el('<button class="btn small" title="위로">▲</button>');
+var downBtn=el('<button class="btn small" title="아래로">▼</button>');
+upBtn.onclick=function(){ shiftRow(row, -1); };
+downBtn.onclick=function(){ shiftRow(row, 1); };
+var rmBtn=el('<button class="btn small danger" style="margin-left:auto;">이 문제 삭제</button>');
 rmBtn.onclick=function(){ row.remove(); rows=rows.filter(function(r){return r.row!==row;}); };
-row.appendChild(rmBtn);
+moveRow.appendChild(upBtn); moveRow.appendChild(downBtn); moveRow.appendChild(rmBtn);
+row.appendChild(moveRow);
 qList.appendChild(row);
 rows.push({row:row,numIn:numIn,qIn:qIn,optInputs:optInputs,explIn:explIn,orig:qData});
 }
 (item.questions||[]).forEach(function(q){ addRow(q); });
 if(rows.length===0) addRow(null);
+/* 화면과 배열을 함께 옮겨요. 저장할 때 이 순서 그대로 들어갑니다. */
+function reflowRows(){ rows.forEach(function(r){ qList.appendChild(r.row); }); }
+function shiftRow(row, dir){
+var i=-1, k;
+for(k=0;k<rows.length;k++){ if(rows[k].row===row){ i=k; break; } }
+if(i<0) return;
+var j=i+dir;
+if(j<0 || j>=rows.length) return;
+var t=rows[i]; rows[i]=rows[j]; rows[j]=t;
+reflowRows();
+}
+/* 번호칸이 비어 있으면 질문 앞의 숫자를 봐요 */
+function rowNum(r){
+var v=(r.numIn && r.numIn.value ? r.numIn.value : '').trim();
+if(!v){
+var m=(r.qIn.value||'').match(/^\s*\(?(\d{1,3})/);
+v=m?m[1]:'';
+}
+var n=parseInt(v,10);
+return isNaN(n) ? 9999 : n;
+}
+var sortBtn=el('<button class="btn small" style="margin-left:6px;">번호순 정렬</button>');
+sortBtn.onclick=function(){
+rows.sort(function(a,b){ return rowNum(a)-rowNum(b); });
+reflowRows();
+};
 var addQBtn=el('<button class="btn small">+ 질문 추가</button>');
 addQBtn.onclick=function(){ addRow(null); };
-box.appendChild(addQBtn);
+box.appendChild(addQBtn); box.appendChild(sortBtn);
 var warn2=el('<p class="muted" style="margin:6px 0 0;min-height:16px;"></p>');
 box.appendChild(warn2);
 var btnRow2=el('<div class="row" style="margin-top:4px;"></div>');
@@ -3834,7 +3969,7 @@ if(numLab) qHead.appendChild(el('<span style="color:var(--text-2);margin-right:4
 var qTextDiv=el('<span style="font-weight:600;line-height:1.6;"></span>');
 qTextDiv.dataset.zoneKey=qZoneKey;
 var qBody = stripSavedQNum(annotEntry.opts[qZoneKey]) || escapeHtml(qq.q||'');
-if(numLab) qBody = stripLeadingDots(qBody);
+if(numLab) qBody = stripLeadingDots(stripLeadingNumText(qBody));
 qTextDiv.innerHTML = qBody;
 qHead.appendChild(qTextDiv);
 qBlock.appendChild(qHead);
