@@ -3753,6 +3753,35 @@ parent.removeChild(wrap);
 });
 }
 
+/* 예전에 저장된 필기에는 양끝 공백까지 서식 안에 들어가 있어요.
+   그러면 그 공백에도 색·테두리가 칠해져서 앞 단어와의 사이가 벌어져 보이고,
+   줄이 바뀔 때 어색하게 끊깁니다. 공백을 서식 밖으로 밀어냅니다. */
+function trimSpanEdges(zoneEl){
+var spans=zoneEl.querySelectorAll('span[data-annot="fmt"]');
+Array.prototype.forEach.call(spans, function(sp){
+if(sp.querySelector && sp.querySelector('.annot-wrap')) return;   /* 메모 덩어리는 건드리지 않아요 */
+var parent=sp.parentNode;
+if(!parent) return;
+var first=sp.firstChild, last=sp.lastChild;
+/* 앞쪽 공백 빼내기 */
+while(first && first.nodeType===3 && /^\s/.test(first.nodeValue)){
+var m=first.nodeValue.match(/^\s+/)[0];
+first.nodeValue=first.nodeValue.slice(m.length);
+parent.insertBefore(document.createTextNode(m), sp);
+if(!first.nodeValue){ sp.removeChild(first); first=sp.firstChild; } else break;
+}
+/* 뒤쪽 공백 빼내기 */
+last=sp.lastChild;
+while(last && last.nodeType===3 && /\s$/.test(last.nodeValue)){
+var m2=last.nodeValue.match(/\s+$/)[0];
+last.nodeValue=last.nodeValue.slice(0, last.nodeValue.length-m2.length);
+if(sp.nextSibling) parent.insertBefore(document.createTextNode(m2), sp.nextSibling);
+else parent.appendChild(document.createTextNode(m2));
+if(!last.nodeValue){ sp.removeChild(last); last=sp.lastChild; } else break;
+}
+});
+}
+
 function setBoxEdges(sp, first, last){
 sp.style.borderLeftWidth  = first?'2px':'0';
 sp.style.borderRightWidth = last?'2px':'0';
@@ -3808,6 +3837,7 @@ if(!merged) break;
 function finishZoneEdit(zoneEl){
 LAST_SEL=null;   /* DOM이 바뀌어 기억해둔 범위는 더 이상 못 씀 */
 dropGhostNotes(zoneEl);
+trimSpanEdges(zoneEl);
 cleanupEmptySpans(zoneEl);
 try{ zoneEl.normalize(); }catch(e){}
 mergeAdjacentFmtSpans(zoneEl);
@@ -4466,6 +4496,8 @@ bindNoteEditing(n, zoneEl);
 function attachZoneClickHandler(zoneEl){
 /* 예전에 쪼개져 저장된 유령 조각을 화면을 열 때 정리해요 */
 dropGhostNotes(zoneEl);
+trimSpanEdges(zoneEl);
+refreshBoxGroups(zoneEl);
 rebindNotes(zoneEl);
 /* 이 영역에서 드래그하면 서식·메모·단어장 도구가 그 자리에 떠요 */
 registerSelTools(zoneEl, {
