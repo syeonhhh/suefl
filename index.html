@@ -1909,20 +1909,93 @@ b.onclick=function(){ switchTab(t.id); };
 tabsEl.appendChild(b);
 });
 }
-function switchTab(id){
+
+/* ================= 뒤로가기 =================
+   폰의 뒤로가기 버튼이 사이트를 나가버리지 않고 이전 화면으로 가게 해줘요.
+   NAV에 화면을 다시 그리는 함수를 쌓고 history 깊이와 짝을 맞춥니다.
+   TAB_VIEW는 탭마다 지금 보이는 화면을 기억해서, 이미 그 화면이면 다시 그리지 않아요
+   (문제 풀다가 다른 탭 갔다 돌아와도 풀던 게 날아가지 않게). */
+var NAV=[], NAV_CUR=0, NAV_BACK=false, NAV_LEAVE=null, TAB_VIEW={};
+function navRenderTab(id){
+if(id==='vocab') renderVocab();
+else if(id==='reading') renderReading();
+else if(id==='listening') renderListening();
+else if(id==='writing' || id==='speaking') renderWritingSpeaking();
+/* notes/progress/mock은 switchTabRaw가 알아서 그려요 */
+}
+function tabView(id){
+if(!TAB_VIEW[id]) TAB_VIEW[id]={key:'list:'+id, render:function(){ navRenderTab(id); }};
+return TAB_VIEW[id];
+}
+function navLeave(){
+if(NAV_LEAVE){ var f=NAV_LEAVE; NAV_LEAVE=null; f(); }
+}
+function navPush(tab, key, render){
+if(NAV_BACK) return;
+if(NAV_CUR>0 && NAV[NAV_CUR-1].key===key && NAV[NAV_CUR-1].tab===tab){ NAV[NAV_CUR-1].render=render; return; }
+NAV.length=NAV_CUR;
+NAV.push({tab:tab, key:key, render:render});
+NAV_CUR=NAV.length;
+try{ history.pushState({d:NAV_CUR}, ''); }catch(e){}
+}
+/* 문제풀기·필기처럼 하위 화면으로 들어갈 때 */
+function navOpen(tab, key, render){
+navLeave();
+TAB_VIEW[tab]={key:key, render:render};
+navPush(tab, key, render);
+render();
+}
+function navRestore(d){
+if(d<1 || d>NAV.length) return;
+NAV_CUR=d;
+var e=NAV[d-1];
+switchTabRaw(e.tab);
+if(tabView(e.tab).key!==e.key){
+navLeave();
+TAB_VIEW[e.tab]={key:e.key, render:e.render};
+NAV_BACK=true;
+try{ e.render(); }catch(err){}
+NAV_BACK=false;
+window.scrollTo(0,0);
+}
+}
+window.addEventListener('popstate', function(ev){
+navRestore((ev.state && ev.state.d) || 1);
+});
+/* 화면 안의 "← 목록으로" 버튼도 이걸 써야 history와 어긋나지 않아요 */
+function navBack(fallback){
+if(NAV_CUR>1){ history.back(); return; }
+navLeave();
+if(fallback) fallback();
+}
+function navInit(){
+var v=tabView('vocab');
+NAV=[{tab:'vocab', key:v.key, render:v.render}];
+NAV_CUR=1;
+try{ history.replaceState({d:1}, ''); }catch(e){}
+}
+
+function switchTabRaw(id){
 document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.tab===id); });
 document.querySelectorAll('.panel').forEach(function(p){ p.classList.toggle('active', p.id==='panel-'+id); });
 if(id==='progress') renderProgress();
 if(id==='notes') renderNotesTab();
 if(id==='mock') renderMock();
 }
+function switchTab(id){
+var v=tabView(id);
+navPush(id, v.key, v.render);
+switchTabRaw(id);
+}
 function goToItem(item, kind, mode){
 switchTab(kind);
 if(mode==='exam'){
+navOpen(kind, 'exam:'+item.id, function(){
 if(kind==='reading'){ item.taskType==='completeWords' ? renderCompleteWordsExam(item) : renderReadingExam(item); }
 else{ renderListeningExam(item); }
+});
 } else {
-renderAnalysisView(item, kind);
+navOpen(kind, 'note:'+item.id, function(){ renderAnalysisView(item, kind); });
 }
 }
 function renderNotesTab(){
@@ -2338,9 +2411,9 @@ infoWrap.appendChild(actionsRow);
 card.appendChild(infoWrap);
 var right=el('<div class="row"></div>');
 var openBtn=el('<button class="btn primary small">문제풀기</button>');
-openBtn.onclick=function(){ info.id==='completeWords' ? renderCompleteWordsExam(item) : renderReadingExam(item); };
+openBtn.onclick=function(){ navOpen('reading','exam:'+item.id, function(){ info.id==='completeWords' ? renderCompleteWordsExam(item) : renderReadingExam(item); }); };
 var noteBtn=el('<button class="btn small">필기</button>');
-noteBtn.onclick=function(){ renderAnalysisView(item, 'reading'); };
+noteBtn.onclick=function(){ navOpen('reading','note:'+item.id, function(){ renderAnalysisView(item, 'reading'); }); };
 right.appendChild(openBtn); right.appendChild(noteBtn);
 var renameCtl=inlineRename(actionsRow, item, renderReading, {external:true});
 var imgCtl=inlineImageToggle(actionsRow, item, 'image', renderReading, {external:true});
@@ -2609,7 +2682,7 @@ return box;
 function renderReadingExam(item){
 var panel=document.getElementById('panel-reading'); panel.innerHTML='';
 var back=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-back.onclick=renderReading;
+back.onclick=function(){ navBack(renderReading); };
 panel.appendChild(back);
 
 var info=readingTaskInfo(item.taskType);
@@ -2654,7 +2727,7 @@ renderExamQuestions(right, item, 'readingScores', 'reading', frame, bottomContai
 function renderCompleteWordsExam(item){
 var panel=document.getElementById('panel-reading'); panel.innerHTML='';
 var back=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-back.onclick=renderReading;
+back.onclick=function(){ navBack(renderReading); };
 panel.appendChild(back);
 
 var info=readingTaskInfo('completeWords');
@@ -2744,9 +2817,9 @@ infoWrap.appendChild(actionsRow);
 card.appendChild(infoWrap);
 var right=el('<div class="row"></div>');
 var openBtn=el('<button class="btn primary small">문제풀기</button>');
-openBtn.onclick=function(){ renderListeningExam(item); };
+openBtn.onclick=function(){ navOpen('listening','exam:'+item.id, function(){ renderListeningExam(item); }); };
 var noteBtn=el('<button class="btn small">필기</button>');
-noteBtn.onclick=function(){ renderAnalysisView(item, 'listening'); };
+noteBtn.onclick=function(){ navOpen('listening','note:'+item.id, function(){ renderAnalysisView(item, 'listening'); }); };
 right.appendChild(openBtn); right.appendChild(noteBtn);
 var renameCtl=inlineRename(actionsRow, item, renderListening, {external:true});
 var imgCtl=inlineImageToggle(actionsRow, item, 'image', renderListening, {external:true});
@@ -3077,7 +3150,7 @@ return {wrapper:row, stop:reset};
 function renderListeningExam(item){
 var panel=document.getElementById('panel-listening'); panel.innerHTML='';
 var back=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-back.onclick=renderListening;
+back.onclick=function(){ navBack(renderListening); };
 panel.appendChild(back);
 
 var info=listeningTaskInfo(item.taskType);
@@ -3192,7 +3265,7 @@ function renderBottom(){
 bottomHolder.innerHTML='';
 var allAnswered=answered.length>0 && answered.every(Boolean);
 var analysisBtn=el('<button class="btn '+(allAnswered?'primary':'')+'" style="margin-top:14px;width:100%;">분석 페이지로 이동 (하이라이트·메모) →</button>');
-analysisBtn.onclick=function(){ renderAnalysisView(item, kind); };
+analysisBtn.onclick=function(){ navOpen(kind,'note:'+item.id, function(){ renderAnalysisView(item, kind); }); };
 bottomHolder.appendChild(analysisBtn);
 if(allAnswered){ bottomHolder.appendChild(el('<p class="muted" style="margin-top:6px;text-align:center;">모든 문제를 풀었어요! 지문을 분석해보세요.</p>')); }
 if(opts && opts.onProgress) opts.onProgress(allAnswered);
@@ -3495,19 +3568,22 @@ var panelId = kind==='reading' ? 'panel-reading' : 'panel-listening';
 var panel=document.getElementById(panelId);
 panel.innerHTML='';
 var backList=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-backList.onclick=function(){ leaveAnalysis(); kind==='reading'?renderReading():renderListening(); };
+backList.onclick=function(){ navBack(function(){ leaveAnalysis(); kind==='reading'?renderReading():renderListening(); }); };
 var backExam=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 다시 보기</button>');
-backExam.onclick=function(){ leaveAnalysis(); kind==='reading'?(item.taskType==='completeWords'?renderCompleteWordsExam(item):renderReadingExam(item)):renderListeningExam(item); };
+backExam.onclick=function(){ navOpen(kind,'exam:'+item.id, function(){ kind==='reading'?(item.taskType==='completeWords'?renderCompleteWordsExam(item):renderReadingExam(item)):renderListeningExam(item); }); };
 panel.appendChild(backList); panel.appendChild(backExam);
 
 var info = kind==='reading' ? readingTaskInfo(item.taskType) : listeningTaskInfo(item.taskType);
 
 /* 필기 화면에서 바로 문제 내용을 고칠 수 있게 */
 function leaveAnalysis(){
+NAV_LEAVE=null;
 detachAnnotShortcuts();
 closeToolDock();
 if(eraseBar && eraseBar.parentNode) eraseBar.parentNode.removeChild(eraseBar);
 }
+/* 뒤로가기로 나갈 때도 단축키·도구창을 정리해야 해요 */
+NAV_LEAVE=leaveAnalysis;
 var editBtn=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 내용 수정</button>');
 var editHolder=el('<div style="margin-bottom:12px;"></div>');
 var editOpen=false;
@@ -4801,7 +4877,7 @@ infoWrap.appendChild(actionsRow);
 card.appendChild(infoWrap);
 var right=el('<div class="row"></div>');
 var openBtn=el('<button class="btn primary small">연습하기</button>');
-openBtn.onclick=function(){ renderBuildSentenceExam(item); };
+openBtn.onclick=function(){ navOpen('writing','exam:'+item.id, function(){ renderBuildSentenceExam(item); }); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
 var wEditBox=null;
@@ -4838,7 +4914,7 @@ infoWrap.appendChild(actionsRow);
 card.appendChild(infoWrap);
 var right=el('<div class="row"></div>');
 var openBtn=el('<button class="btn primary small">작성하기</button>');
-openBtn.onclick=function(){ renderWritingPractice(item, 'email', item.prompt); };
+openBtn.onclick=function(){ navOpen('writing','exam:'+item.id, function(){ renderWritingPractice(item, 'email', item.prompt); }); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
 var wEditBox=null;
@@ -4875,7 +4951,7 @@ infoWrap.appendChild(actionsRow);
 card.appendChild(infoWrap);
 var right=el('<div class="row"></div>');
 var openBtn=el('<button class="btn primary small">작성하기</button>');
-openBtn.onclick=function(){ renderDiscussionPractice(item); };
+openBtn.onclick=function(){ navOpen('writing','exam:'+item.id, function(){ renderDiscussionPractice(item); }); };
 right.appendChild(openBtn);
 var renameCtl=inlineRename(actionsRow, item, renderWritingSpeaking, {external:true});
 var wEditBox=null;
@@ -4903,7 +4979,7 @@ __real.appendChild(__sec[curTask('writing', WRITING_TASK_TYPES)]);
 function renderBuildSentenceExam(item){
 var panel=document.getElementById('panel-writing'); panel.innerHTML='';
 var back=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-back.onclick=renderWritingSpeaking;
+back.onclick=function(){ navBack(renderWritingSpeaking); };
 panel.appendChild(back);
 var card=el('<div class="card"></div>');
 card.appendChild(el('<p class="muted" style="margin:0 0 2px;">'+taskHeader(writingTaskInfo('buildSentence'))+'</p>'));
@@ -4966,7 +5042,7 @@ shuffle();
 function renderWritingPractice(item, typeKey, promptText){
 var panel=document.getElementById('panel-writing'); panel.innerHTML='';
 var back=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-back.onclick=renderWritingSpeaking;
+back.onclick=function(){ navBack(renderWritingSpeaking); };
 panel.appendChild(back);
 var card=el('<div class="card"></div>');
 card.appendChild(el('<p class="muted" style="margin:0 0 2px;">'+taskHeader(writingTaskInfo(typeKey))+'</p>'));
@@ -5020,7 +5096,7 @@ panel.appendChild(card);
 function renderDiscussionPractice(item){
 var panel=document.getElementById('panel-writing'); panel.innerHTML='';
 var back=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
-back.onclick=renderWritingSpeaking;
+back.onclick=function(){ navBack(renderWritingSpeaking); };
 panel.appendChild(back);
 var card=el('<div class="card"></div>');
 card.appendChild(el('<p class="muted" style="margin:0 0 2px;">'+taskHeader(writingTaskInfo('discussion'))+'</p>'));
@@ -7258,6 +7334,7 @@ renderVocab();
 renderReading();
 renderListening();
 renderWritingSpeaking();
+navInit();
 startCloudWatch();
 }
 </script>
