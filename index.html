@@ -414,6 +414,15 @@ padding:10px 12px;font-size:12px;color:var(--text);max-width:210px;}
 .tooldock{right:8px;left:8px;top:auto;bottom:8px;transform:none;max-width:none;}
 }
 
+/* 밑줄이 g·y·p 같은 글자에서 끊겨 보이지 않던 문제.
+   브라우저 기본값이 '내려가는 획을 피해 끊기'라서 꺼줍니다.
+   예전에 저장된 필기에는 이 속성이 없으므로 규칙이 그대로 적용돼요. */
+[data-annot="fmt"][data-ul], [data-annot="underline"]{
+text-decoration-skip-ink:none;
+-webkit-text-decoration-skip-ink:none;
+text-underline-offset:3px;
+}
+
 /* 단축키 줄 */
 .shortcut-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px 16px;margin:0 0 12px;font-size:12px;color:var(--text-2);}
 .shortcut-bar span{display:inline-flex;align-items:center;gap:5px;}
@@ -3491,8 +3500,18 @@ function showStatus(msg, isError){ statusEl.textContent=msg||''; statusEl.style.
 
 function styleForSpan(span){
 span.style.backgroundColor=span.dataset.hl||'';
-if(span.dataset.ul){ span.style.textDecorationLine='underline'; span.style.textDecorationColor=span.dataset.ul; span.style.textDecorationThickness='2px'; }
-else { span.style.textDecorationLine=''; span.style.textDecorationColor=''; span.style.textDecorationThickness=''; }
+if(span.dataset.ul){
+span.style.textDecorationLine='underline';
+span.style.textDecorationColor=span.dataset.ul;
+span.style.textDecorationThickness='2px';
+/* g·y·p 처럼 아래로 내려가는 글자에서 밑줄이 끊기지 않게 */
+span.style.textDecorationSkipInk='none';
+span.style.textUnderlineOffset='3px';
+}
+else {
+span.style.textDecorationLine=''; span.style.textDecorationColor=''; span.style.textDecorationThickness='';
+span.style.textDecorationSkipInk=''; span.style.textUnderlineOffset='';
+}
 if(span.dataset.box){ span.style.border='2px solid '+span.dataset.box; span.style.padding='0 2px'; span.style.boxDecorationBreak='clone'; span.style.webkitBoxDecorationBreak='clone'; }
 else { span.style.border=''; span.style.padding=''; span.style.boxDecorationBreak=''; span.style.webkitBoxDecorationBreak=''; }
 span.style.borderRadius=(span.dataset.hl||span.dataset.box)?'2px':'';
