@@ -696,23 +696,43 @@ lbl.appendChild(document.createTextNode('메모 모음에 표시하지 않기'))
 return lbl;
 }
 
+/* 메모장은 「만들기」를 눌러야 생겨요. 만든 뒤에는 펼쳐진 게 기본이고,
+   「숨기기」로 접을 수 있습니다. 접어둔 건 문제마다 기억해요.
+   NOTES[id]가 문자열이면 '만들어진' 것 — 빈 문자열이어도 만들어진 겁니다. */
+function noteFoldKey(id){ return 'fold:'+id; }
+function noteExists(id){ return typeof NOTES[id]==='string'; }
+function createNote(id){
+if(!noteExists(id)) NOTES[id]='';
+delete NOTES[noteFoldKey(id)];
+saveNotes();
+}
+
 function buildNotepad(itemId, placeholder, opts){
 opts=opts||{};
-var wrap=el('<div style="margin-top:'+(opts.tight?'8':'12')+'px;"></div>');
-var open=!!opts.openByDefault;
-var btn=el('<button class="btn small">메모장 보기/숨기기</button>');
+var wrap=el('<div style="margin-'+(opts.above?'bottom':'top')+':'+(opts.tight?'8':'12')+'px;"></div>');
+var btn=el('<button class="btn small"></button>');
 var ta=el('<textarea placeholder="'+placeholder+'" style="min-height:'+(opts.tight?'90':'120')+'px;margin-top:8px;"></textarea>');
-ta.style.display=open?'block':'none';
 ta.value=NOTES[itemId]||'';
 ta.oninput=function(){ NOTES[itemId]=ta.value; saveNotes(); };
 var hideRow=noteHideToggle(itemId);
-hideRow.style.display=open?'flex':'none';
-btn.onclick=function(){
-var show=ta.style.display==='none';
-ta.style.display=show?'block':'none';
-hideRow.style.display=show?'flex':'none';
-};
 wrap.appendChild(btn); wrap.appendChild(ta); wrap.appendChild(hideRow);
+function paint(){
+var made=noteExists(itemId);
+var open=made && !NOTES[noteFoldKey(itemId)];
+btn.textContent = made ? (open?'메모장 숨기기':'메모장 보기') : '+ 메모장 만들기';
+ta.style.display=open?'block':'none';
+hideRow.style.display=open?'flex':'none';
+}
+btn.onclick=function(){
+if(!noteExists(itemId)){ createNote(itemId); paint(); ta.focus(); return; }
+if(NOTES[noteFoldKey(itemId)]) delete NOTES[noteFoldKey(itemId)];
+else NOTES[noteFoldKey(itemId)]=true;
+saveNotes();
+paint();
+};
+/* 스피킹 준비 시간처럼 시간을 재는 화면은 바로 쓸 수 있게 미리 만들어둬요 */
+if(opts.openByDefault && !noteExists(itemId)) createNote(itemId);
+paint();
 return wrap;
 }
 
@@ -1305,7 +1325,8 @@ var DELETED = loadDeleted();
 function markDeleted(id){
 if(!id) return;
 DELETED[id]=new Date().toISOString();
-if(NOTES[id]!==undefined){ delete NOTES[id]; safeSet('toeflNotes', JSON.stringify(NOTES)); }
+delete NOTES[id]; delete NOTES[noteHiddenKey(id)]; delete NOTES[noteFoldKey(id)];
+safeSet('toeflNotes', JSON.stringify(NOTES));
 if(ANNOTATIONS[id]!==undefined){ delete ANNOTATIONS[id]; safeSet('toeflAnnotations', JSON.stringify(ANNOTATIONS)); }
 if(PROGRESS.readingScores && PROGRESS.readingScores[id]) delete PROGRESS.readingScores[id];
 if(PROGRESS.listeningScores && PROGRESS.listeningScores[id]) delete PROGRESS.listeningScores[id];
@@ -3002,18 +3023,7 @@ frame.appendChild(body);
 registerSelTools(frame, {});
 panel.appendChild(frame);
 
-var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모장 보기/숨기기</button>');
-var notepad=el('<textarea placeholder="읽으면서 자유롭게 메모하세요..." style="min-height:120px;display:none;margin-top:8px;"></textarea>');
-notepad.value=NOTES[item.id]||'';
-notepad.oninput=function(){ NOTES[item.id]=notepad.value; saveNotes(); };
-var noteHideRow=noteHideToggle(item.id);
-noteHideRow.style.display='none';
-notesToggleBtn.onclick=function(){
-var show=notepad.style.display==='none';
-notepad.style.display=show?'block':'none';
-noteHideRow.style.display=show?'flex':'none';
-};
-panel.appendChild(notesToggleBtn); panel.appendChild(notepad); panel.appendChild(noteHideRow);
+panel.appendChild(buildNotepad(item.id, '읽으면서 자유롭게 메모하세요...'));
 
 var bottomContainer=el('<div></div>');
 panel.appendChild(bottomContainer);
@@ -3071,18 +3081,7 @@ frame.appendChild(footer);
 registerSelTools(frame, {});
 panel.appendChild(frame);
 
-var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모장 보기/숨기기</button>');
-var notepad=el('<textarea placeholder="자유롭게 메모하세요..." style="min-height:100px;display:none;margin-top:8px;"></textarea>');
-notepad.value=NOTES[item.id]||'';
-notepad.oninput=function(){ NOTES[item.id]=notepad.value; saveNotes(); };
-var noteHideRow=noteHideToggle(item.id);
-noteHideRow.style.display='none';
-notesToggleBtn.onclick=function(){
-var show=notepad.style.display==='none';
-notepad.style.display=show?'block':'none';
-noteHideRow.style.display=show?'flex':'none';
-};
-panel.appendChild(notesToggleBtn); panel.appendChild(notepad); panel.appendChild(noteHideRow);
+panel.appendChild(buildNotepad(item.id, '자유롭게 메모하세요...', {tight:true}));
 }
 
 /* ================= LISTENING ================= */
@@ -3503,18 +3502,7 @@ frame.appendChild(body);
 registerSelTools(frame, {});
 panel.appendChild(frame);
 
-var notesToggleBtn=el('<button class="btn small" style="margin-top:12px;">메모장 보기/숨기기</button>');
-var notepad=el('<textarea placeholder="들으면서 자유롭게 메모하세요..." style="min-height:120px;display:none;margin-top:8px;"></textarea>');
-notepad.value=NOTES[item.id]||'';
-notepad.oninput=function(){ NOTES[item.id]=notepad.value; saveNotes(); };
-var noteHideRow=noteHideToggle(item.id);
-noteHideRow.style.display='none';
-notesToggleBtn.onclick=function(){
-var show=notepad.style.display==='none';
-notepad.style.display=show?'block':'none';
-noteHideRow.style.display=show?'flex':'none';
-};
-panel.appendChild(notesToggleBtn); panel.appendChild(notepad); panel.appendChild(noteHideRow);
+panel.appendChild(buildNotepad(item.id, '들으면서 자유롭게 메모하세요...'));
 
 var bottomContainer=el('<div></div>');
 panel.appendChild(bottomContainer);
@@ -4364,18 +4352,7 @@ addWordPanel.style.display='none';
 showStatus('"'+awWordIn.value.trim()+'" 단어장에 추가했어요.');
 };
 
-var notesToggleBtn2=el('<button class="btn small" style="margin-bottom:10px;">메모장 보기/숨기기</button>');
-var freeNotepad=el('<textarea placeholder="자유 메모장 — 읽으면서 정리한 내용을 적어두세요..." style="display:none;min-height:110px;margin-bottom:14px;"></textarea>');
-freeNotepad.value=NOTES[item.id]||'';
-freeNotepad.oninput=function(){ NOTES[item.id]=freeNotepad.value; saveNotes(); };
-var freeHideRow=noteHideToggle(item.id);
-freeHideRow.style.display='none';
-notesToggleBtn2.onclick=function(){
-var show=freeNotepad.style.display==='none';
-freeNotepad.style.display=show?'block':'none';
-freeHideRow.style.display=show?'flex':'none';
-};
-card.appendChild(notesToggleBtn2); card.appendChild(freeNotepad); card.appendChild(freeHideRow);
+card.appendChild(buildNotepad(item.id, '자유 메모장 — 읽으면서 정리한 내용을 적어두세요...', {above:true}));
 
 /* 지문(왼쪽)과 문제(오른쪽)를 나란히 — 지문을 보면서 문제를 분석할 수 있게 */
 var splitWrap=el('<div class="analysis-split"></div>');
