@@ -3851,6 +3851,8 @@ function renderAnalysisView(item, kind){
 var panelId = kind==='reading' ? 'panel-reading' : 'panel-listening';
 var panel=document.getElementById(panelId);
 panel.innerHTML='';
+/* 되돌리기 상태 — scBar를 만들 때 paintUndo가 이걸 읽으므로 맨 위에 둡니다 */
+var UNDO=[], UNDO_MAX=50, UNDO_T=0, ZONE_LAST={};
 var backList=el('<button class="btn small" style="margin-bottom:12px;">← 목록으로</button>');
 backList.onclick=function(){ navBack(function(){ leaveAnalysis(); kind==='reading'?renderReading():renderListening(); }); };
 var backExam=el('<button class="btn small" style="margin-bottom:12px;margin-left:8px;">문제 다시 보기</button>');
@@ -3896,7 +3898,7 @@ var card=el('<div class="card"></div>');
 card.appendChild(el('<p class="muted" style="margin:0 0 2px;">'+taskHeader(info)+'</p>'));
 card.appendChild(el('<h2>'+escapeHtml(item.title)+' — 분석</h2>'));
 var scBar=el('<div class="shortcut-bar"></div>');
-[['H','형광펜'],['U','밑줄'],['B','네모박스'],['M','메모'],['D','단어장']].forEach(function(k){
+[['H','형광펜'],['U','밑줄'],['B','네모박스'],['M','메모'],['D','단어장'],['Z','되돌리기']].forEach(function(k){
 var g=el('<span></span>');
 g.appendChild(el('<kbd class="kbd">'+MOD_KEY+'+'+k[0]+'</kbd>'));
 g.appendChild(document.createTextNode(k[1]));
@@ -3905,8 +3907,18 @@ scBar.appendChild(g);
 /* 드래그가 안 먹힐 때를 위한 수동 도구 창.
    applyFormat·addNote·getActiveZone 은 함수 선언이라 아래에 있어도
    누르는 시점에는 이미 준비돼 있어요. */
+var undoBtn=el('<button class="btn small" style="margin-left:auto;">↶ 되돌리기</button>');
+function paintUndo(){
+if(!undoBtn) return;
+undoBtn.disabled = UNDO.length===0;
+undoBtn.textContent = UNDO.length ? ('↶ 되돌리기 ('+UNDO.length+')') : '↶ 되돌리기';
+}
+undoBtn.onclick=function(){ undoOnce(); };
+paintUndo();
+scBar.appendChild(undoBtn);
+
 var dockCtl=null;
-var dockBtn=el('<button class="btn small" style="margin-left:auto;">🎨 도구 창</button>');
+var dockBtn=el('<button class="btn small" style="margin-left:6px;">🎨 도구 창</button>');
 function refreshDockBtn(){ dockBtn.textContent = TOOLDOCK_OPEN ? '도구 창 닫기' : '🎨 도구 창'; }
 function needSel(){
 if(getActiveZone()) return true;
@@ -3937,12 +3949,57 @@ if(!v){ v={passage:null, opts:{}}; ANNOTATIONS[id]=v; }
 if(!v.opts) v.opts={};
 return v;
 }
-function persistZone(zoneEl){
+/* ---- 되돌리기 ----
+   서식·메모는 결국 영역(zone) 하나의 HTML을 통째로 갈아끼우는 일이라,
+   바뀌기 직전 HTML만 쌓아두면 그대로 되돌릴 수 있어요.
+   메모를 타이핑할 때는 글자마다 쌓이면 안 되니 한 덩어리로 묶습니다(coalesce). */
+function persistZone(zoneEl, coalesce){
 var entry=getAnnotEntry(item.id);
 var key=zoneEl.dataset.zoneKey;
-if(key==='passage'){ entry.passage=zoneEl.innerHTML; }
-else { entry.opts[key]=zoneEl.innerHTML; }
+var now=zoneEl.innerHTML;
+var prev=ZONE_LAST[key];
+if(prev!==undefined && prev!==now){
+var top=UNDO[UNDO.length-1];
+/* 타이핑끼리만 뭉쳐요. 메모를 만든 단계까지 같이 삼키면 안 되니까 top.soft를 봅니다. */
+var merge = coalesce && top && top.soft && top.key===key && (Date.now()-UNDO_T)<900;
+if(!merge){
+UNDO.push({key:key, html:prev, soft:!!coalesce});
+if(UNDO.length>UNDO_MAX) UNDO.shift();
+}
+UNDO_T=Date.now();
+paintUndo();
+}
+ZONE_LAST[key]=now;
+if(key==='passage'){ entry.passage=now; }
+else { entry.opts[key]=now; }
 saveAnnotations();
+}
+function zoneByKey(key){
+for(var i=0;i<zones.length;i++){ if(zones[i].dataset.zoneKey===key) return zones[i]; }
+return null;
+}
+function undoOnce(){
+var st=UNDO.pop();
+paintUndo();
+if(!st){ showStatus('되돌릴 게 없어요.', true); return; }
+var zone=zoneByKey(st.key);
+if(!zone){ showStatus('되돌릴 곳을 찾지 못했어요.', true); return; }
+hideErase();
+closeToolDock();
+zone.innerHTML=st.html;
+ZONE_LAST[st.key]=st.html;
+var entry=getAnnotEntry(item.id);
+if(st.key==='passage') entry.passage=st.html; else entry.opts[st.key]=st.html;
+saveAnnotations();
+/* 갈아끼운 HTML은 손질과 핸들러 연결을 처음처럼 다시 해줘야 해요 */
+cleanupEmptySpans(zone);
+dropGhostNotes(zone);
+trimSpanEdges(zone);
+refreshBoxGroups(zone);
+rebindNotes(zone);
+if(kind==='reading' && item.taskType==='completeWords' && st.key==='passage') markCwAnswers(zone);
+try{ zone.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){}
+showStatus('되돌렸어요.'+(UNDO.length?' ('+UNDO.length+'번 더 되돌릴 수 있어요)':''));
 }
 var zones=[];
 function zoneForNode(node){
@@ -4405,7 +4462,8 @@ var segKey='qscript-'+qi;
 var segBox=el('<div class="passage" style="margin:0 0 10px;font-size:13.5px;line-height:1.7;background:var(--card);"></div>');
 segBox.dataset.zoneKey=segKey;
 segBox.innerHTML = annotEntry.opts[segKey] || escapeHtml(qq.script);
-qBlock.insertBefore(segBox, qTextDiv);
+/* qTextDiv는 qHead 안에 있어서 qBlock의 자식이 아니에요 — qHead 앞에 넣어야 합니다 */
+qBlock.insertBefore(segBox, qHead);
 cleanupEmptySpans(segBox);
 refreshBoxGroups(segBox);
 zones.push(segBox);
@@ -4487,6 +4545,9 @@ splitR.appendChild(qBlock);
 }
 
 if(kind==='reading' && item.taskType==='completeWords') splitR.appendChild(buildCwAnswerList(item));
+
+/* 지금 화면에 그려진 모습이 되돌리기의 출발점이에요 */
+zones.forEach(function(z){ ZONE_LAST[z.dataset.zoneKey]=z.innerHTML; });
 
 /* 한쪽이 비면 나머지가 전체 폭을 쓰게 */
 if(!splitL.childNodes.length) splitWrap.classList.add('single');
@@ -4665,7 +4726,7 @@ var noteEl=span.querySelector('.annot-notetext');
 var ta=el('<textarea placeholder="메모 내용" style="width:100%;"></textarea>');
 ta.value=noteEl?noteEl.textContent:'';
 ta.oninput=function(){
-if(noteEl){ noteEl.textContent=ta.value; persistZone(zoneEl); }
+if(noteEl){ noteEl.textContent=ta.value; persistZone(zoneEl, true); }
 };
 eraseBar.appendChild(ta);
 var cRow=el('<div class="selpop-row" style="margin-top:8px;"></div>');
@@ -4801,7 +4862,7 @@ n.contentEditable='true';
 n.style.cursor='text';
 n.title='클릭해서 고쳐 쓸 수 있어요. 다 지우고 나가면 메모가 없어져요.';
 if(!n.getAttribute('data-placeholder')) n.setAttribute('data-placeholder','메모');
-n.addEventListener('input', function(){ persistZone(zoneEl); });
+n.addEventListener('input', function(){ persistZone(zoneEl, true); });
 n.addEventListener('blur', function(){
 if(!n.textContent.trim()){
 var w=noteWrapOf(n);
@@ -4908,6 +4969,13 @@ if(key==='h'){ e.preventDefault(); applyFormat('hl', hlPicker.get()); }
 else if(key==='u'){ e.preventDefault(); applyFormat('ul', ulPicker.get()); }
 else if(key==='b'){ e.preventDefault(); applyFormat('box', boxPicker.get()); }
 else if(key==='m'){ e.preventDefault(); addNote(); }
+else if(key==='z'){
+/* 글을 쓰는 중이면 브라우저의 되돌리기가 먼저예요 */
+var t=e.target;
+if(t && (t.tagName==='TEXTAREA' || t.tagName==='INPUT' || t.isContentEditable)) return;
+e.preventDefault();
+undoOnce();
+}
 else if(key==='d'){
 e.preventDefault();
 var sel=window.getSelection();
