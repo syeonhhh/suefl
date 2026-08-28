@@ -181,10 +181,19 @@ background-image:linear-gradient(to right,#2e7d32 0 1ch,transparent 1ch);}
 input[type=text].blank-input.wrong{color:#b71c1c;background-color:transparent;
 background-image:linear-gradient(to right,#c62828 0 1ch,transparent 1ch);}
 /* 문장 배열 */
-.bsent-chip{display:inline-block;padding:8px 14px;margin:4px;border:1px solid var(--border);border-radius:var(--radius-xs);background:var(--card);cursor:pointer;font-size:14px;box-shadow:var(--shadow-1);transition:background .14s ease,transform .14s ease,box-shadow .14s ease;}
+.bsent-chip{display:inline-block;padding:8px 14px;margin:4px;border:1px solid var(--border);border-radius:var(--radius-xs);background:var(--card);cursor:grab;font-size:14px;box-shadow:var(--shadow-1);transition:background .14s ease,transform .14s ease,box-shadow .14s ease,opacity .14s ease;touch-action:none;user-select:none;-webkit-user-select:none;}
 .bsent-chip:hover{background:var(--surface);transform:translateY(-1px);box-shadow:var(--shadow-2);}
 .bsent-chip.used{opacity:0.28;cursor:default;pointer-events:none;box-shadow:none;}
-.bsent-answer{min-height:50px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:9px;margin-bottom:12px;background:var(--surface);}
+/* 끌고 있는 원래 자리 — 흐리게 두어 어디서 왔는지 보이게 */
+.bsent-chip.dragging{opacity:.3;cursor:grabbing;box-shadow:none;transform:none;}
+/* 손가락/커서를 따라다니는 조각 */
+.bsent-ghost{position:fixed;left:0;top:0;margin:0;z-index:90;pointer-events:none;opacity:.96;box-shadow:var(--shadow-2);cursor:grabbing;}
+/* 여기에 놓인다는 표시 */
+.bsent-slot{display:inline-block;width:3px;height:26px;margin:4px 1px;border-radius:2px;background:var(--accent);vertical-align:middle;}
+.bsent-answer{min-height:50px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:9px;margin-bottom:12px;background:var(--surface);transition:border-color .14s ease,background .14s ease;}
+.bsent-answer.over{border-color:var(--accent);background:var(--accent-bg);}
+.bsent-pool.over{background:var(--accent-bg);border-radius:var(--radius-sm);}
+.bsent-answer .bsent-empty{color:var(--text-3);font-size:13px;padding:6px 4px;}
 .task-head{margin:26px 0 3px;font-size:16px;font-weight:650;letter-spacing:-0.015em;}
 .task-head:first-of-type{margin-top:0;}
 .task-hint{font-size:12.5px;color:var(--text-2);margin:0 0 12px;line-height:1.6;}
@@ -5328,9 +5337,9 @@ panel.appendChild(back);
 var card=el('<div class="card"></div>');
 card.appendChild(el('<p class="muted" style="margin:0 0 2px;">'+taskHeader(writingTaskInfo('buildSentence'))+'</p>'));
 card.appendChild(el('<h2>'+escapeHtml(item.title)+'</h2>'));
-card.appendChild(el('<p class="muted">아래 단어들을 순서대로 클릭해서 올바른 문장을 완성하세요.</p>'));
+card.appendChild(el('<p class="muted">단어를 <strong>끌어다 놓아</strong> 문장을 완성하세요. 넣은 단어끼리 순서를 바꿀 수도 있고, 아래로 다시 끌어내면 빠져요. 그냥 눌러서 넣고 빼도 됩니다.</p>'));
 var answerBox=el('<div class="bsent-answer"></div>');
-var poolBox=el('<div style="margin-bottom:10px;"></div>');
+var poolBox=el('<div class="bsent-pool" style="margin-bottom:10px;"></div>');
 card.appendChild(answerBox); card.appendChild(poolBox);
 var resultEl=el('<p class="muted" style="min-height:18px;"></p>');
 card.appendChild(resultEl);
@@ -5343,32 +5352,134 @@ panel.appendChild(card);
 
 var pool=[], clickedOrder=[];
 function shuffle(){
-pool=item.words.map(function(w,i){return {text:w, origIndex:i, used:false};}).sort(function(){return Math.random()-0.5;});
+pool=item.words.map(function(w,i){return {text:w, origIndex:i};}).sort(function(){return Math.random()-0.5;});
 clickedOrder=[];
 resultEl.textContent='';
 renderAll();
 }
+function inAnswer(idx){ return clickedOrder.indexOf(idx)!==-1; }
+
+/* ---- 끌어다 놓기 ----
+   HTML5 draggable은 폰에서 안 먹어서 포인터 이벤트로 직접 만들었어요.
+   조금이라도 움직이면 끌기, 안 움직이면 그냥 누른 것으로 봅니다. */
+var slotEl=null;
+function clearSlot(){
+if(slotEl && slotEl.parentNode) slotEl.parentNode.removeChild(slotEl);
+slotEl=null;
+answerBox.classList.remove('over');
+poolBox.classList.remove('over');
+}
+function hitBox(box, x, y){
+var r=box.getBoundingClientRect();
+return x>=r.left-6 && x<=r.right+6 && y>=r.top-6 && y<=r.bottom+6;
+}
+/* 끌고 있는 조각과 표시용 막대는 빼고 자리 번호를 셉니다 */
+function answerChipsExceptDragged(){
+return [].slice.call(answerBox.children).filter(function(c){
+return c.classList.contains('bsent-chip') && !c.classList.contains('dragging');
+});
+}
+function insertIndexAt(x, y){
+var chips=answerChipsExceptDragged();
+for(var i=0;i<chips.length;i++){
+var r=chips[i].getBoundingClientRect();
+if(y < r.top) return i;                               /* 윗줄로 넘어갔으면 그 앞 */
+if(y <= r.bottom && x < r.left + r.width/2) return i; /* 같은 줄에서 왼쪽 절반 */
+}
+return chips.length;
+}
+function showSlotAt(idx){
+if(!slotEl) slotEl=el('<span class="bsent-slot"></span>');
+var chips=answerChipsExceptDragged();
+if(idx>=chips.length) answerBox.appendChild(slotEl);
+else answerBox.insertBefore(slotEl, chips[idx]);
+}
+function makeDraggable(chip, origIndex, onTap){
+chip.addEventListener('pointerdown', function(e){
+if(e.button && e.button!==0) return;
+var startX=e.clientX, startY=e.clientY, moved=false, ghost=null, ox=0, oy=0;
+try{ chip.setPointerCapture(e.pointerId); }catch(err){}
+function begin(){
+moved=true;
+var r=chip.getBoundingClientRect();
+ox=startX-r.left; oy=startY-r.top;
+ghost=chip.cloneNode(true);
+ghost.className='bsent-chip bsent-ghost';
+ghost.style.width=r.width+'px';
+document.body.appendChild(ghost);
+chip.classList.add('dragging');
+}
+function place(x, y){
+ghost.style.transform='translate('+(x-ox)+'px,'+(y-oy)+'px) scale(1.05)';
+if(hitBox(answerBox, x, y)){
+answerBox.classList.add('over'); poolBox.classList.remove('over');
+showSlotAt(insertIndexAt(x, y));
+} else if(hitBox(poolBox, x, y) && inAnswer(origIndex)){
+poolBox.classList.add('over'); answerBox.classList.remove('over');
+if(slotEl && slotEl.parentNode) slotEl.parentNode.removeChild(slotEl);
+} else {
+answerBox.classList.remove('over'); poolBox.classList.remove('over');
+if(slotEl && slotEl.parentNode) slotEl.parentNode.removeChild(slotEl);
+}
+}
+function onMove(ev){
+if(!moved){
+if(Math.abs(ev.clientX-startX)<6 && Math.abs(ev.clientY-startY)<6) return;
+begin();
+}
+if(ev.cancelable) ev.preventDefault();
+place(ev.clientX, ev.clientY);
+}
+function onUp(ev){
+chip.removeEventListener('pointermove', onMove);
+chip.removeEventListener('pointerup', onUp);
+chip.removeEventListener('pointercancel', onUp);
+try{ chip.releasePointerCapture(ev.pointerId); }catch(err){}
+if(!moved){ onTap(); return; }
+if(ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+chip.classList.remove('dragging');
+var x=ev.clientX, y=ev.clientY;
+var dropped=false;
+if(hitBox(answerBox, x, y)){
+var idx=insertIndexAt(x, y);
+clickedOrder=clickedOrder.filter(function(v){ return v!==origIndex; });
+clickedOrder.splice(idx, 0, origIndex);
+dropped=true;
+} else if(hitBox(poolBox, x, y) && inAnswer(origIndex)){
+clickedOrder=clickedOrder.filter(function(v){ return v!==origIndex; });
+dropped=true;
+}
+clearSlot();
+if(dropped){ resultEl.textContent=''; renderAll(); }
+}
+chip.addEventListener('pointermove', onMove);
+chip.addEventListener('pointerup', onUp);
+chip.addEventListener('pointercancel', onUp);
+});
+}
+
 function renderAll(){
+clearSlot();
 answerBox.innerHTML='';
+if(!clickedOrder.length) answerBox.appendChild(el('<span class="bsent-empty">여기로 단어를 끌어다 놓으세요</span>'));
 clickedOrder.forEach(function(idx){
-var w=item.words[idx];
-var chip=el('<span class="bsent-chip">'+escapeHtml(w)+'</span>');
-chip.onclick=function(){
-clickedOrder=clickedOrder.filter(function(x){return x!==idx;});
-pool.forEach(function(p){ if(p.origIndex===idx) p.used=false; });
+var chip=el('<span class="bsent-chip">'+escapeHtml(item.words[idx])+'</span>');
+makeDraggable(chip, idx, function(){
+clickedOrder=clickedOrder.filter(function(x){ return x!==idx; });
+resultEl.textContent='';
 renderAll();
-};
+});
 answerBox.appendChild(chip);
 });
 poolBox.innerHTML='';
 pool.forEach(function(p){
-var chip=el('<span class="bsent-chip'+(p.used?' used':'')+'">'+p.text+'</span>');
-chip.onclick=function(){
-if(p.used) return;
-p.used=true;
+var used=inAnswer(p.origIndex);
+var chip=el('<span class="bsent-chip'+(used?' used':'')+'">'+escapeHtml(p.text)+'</span>');
+if(!used) makeDraggable(chip, p.origIndex, function(){
 clickedOrder.push(p.origIndex);
+resultEl.textContent='';
 renderAll();
-};
+});
 poolBox.appendChild(chip);
 });
 }

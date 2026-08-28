@@ -93,6 +93,7 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `runExport` | JSON 내보내기. `'backup'`은 필기·메모·진도까지 담는 전체 백업 |
 | `renderMock` | 모의고사. 설정 → 진행 → 결과를 `MOCK` 전역 상태로 전환 |
 | `buildMockUnits` | 뽑은 문제를 푸는 단위로 펼침 (리딩·리스닝은 문항 단위) |
+| `renderBuildSentenceExam` | 라이팅 Task 1. 실제 시험처럼 끌어다 놓기. HTML5 draggable은 폰에서 안 먹어 포인터 이벤트로 직접 구현(6px 넘게 움직이면 끌기, 아니면 탭). 클릭으로 넣고 빼기도 그대로 됨 |
 | `buildCwDrill` | 리딩 Task 1 철자 연습 (`wi__` 맞히기). 틀린 빈칸 자동 수집 |
 | `cwSplit` / `blankWordParts` | 단어를 어간+어미로 가르기 / 지문에서 빈칸 앞 어간 찾기 |
 | `buildPrepDrill` | 전치사 연습 (단어 탭). 타이핑이 기본, 막히면 보기 4개 |
