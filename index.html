@@ -6625,7 +6625,7 @@ body:JSON.stringify({id:id, payload:packed})
 function shareDownload(id){
 return sbRequest('/rest/v1/shares?id=eq.'+encodeURIComponent(id)+'&select=payload', {}, false)
 .then(function(rows){
-if(!rows || !rows.length || !rows[0].payload) throw new Error('링크를 찾을 수 없어요. 지워졌거나 주소가 잘못됐을 수 있어요.');
+if(!rows || !rows.length || !rows[0].payload) throw new Error('링크를 찾을 수 없어요. 만든 지 '+SHARE_TTL_DAYS+'일이 지나 만료됐거나, 주소가 잘못됐을 수 있어요.');
 return rows[0].payload;
 });
 }
@@ -6650,11 +6650,33 @@ throw new Error('번호가 맞지 않아요.');
 });
 }
 
+/* 공유 링크는 일주일짜리예요.
+   짧은 링크(#s=)는 Supabase shares 표에 행으로 쌓이니 오래된 건 서버에서 지웁니다(pg_cron).
+   긴 링크(#share=)는 서버에 아무것도 없어서 지울 게 없으니, 링크 안에 만료 시각을 새겨둡니다.
+   계속 보고 싶으면 받은 화면에서 「내 자료에 담기」를 누르면 돼요. */
+var SHARE_TTL_DAYS=7;
+function shareExpiryAt(){ return Date.now() + SHARE_TTL_DAYS*24*60*60*1000; }
+function fmtShareDate(ms){
+var d=new Date(ms);
+return (d.getMonth()+1)+'월 '+d.getDate()+'일';
+}
+function sharedExpiredError(){
+var e=new Error('이 링크는 만료됐어요. 공유 링크는 만든 날부터 '+SHARE_TTL_DAYS+'일 동안만 열려요. 보낸 사람에게 새로 받아주세요.');
+e.expired=true;
+return e;
+}
+function acceptShared(data){
+if(!data || data.v!==1) throw new Error('알 수 없는 링크예요.');
+if(data.exp && Date.now() > data.exp) throw sharedExpiredError();
+renderSharedView(data);
+}
+
 /* 링크에 담을 내용 — 문제와 그 문제에 한 필기만. 다른 문제나 단어장은 안 들어가요. */
 function buildSharePayload(item, kind, includeNotes){
 var ann=(ANNOTATIONS[item.id]||{});
 return {
 v:1,
+exp:shareExpiryAt(),
 k:kind,
 tt:item.taskType||'',
 t:item.title||'',
@@ -6671,7 +6693,7 @@ function buildShareControl(item, kind){
 var wrap=el('<div style="margin-bottom:12px;"></div>');
 var btn=el('<button class="btn small">🔗 필기 공유 링크</button>');
 var box=el('<div style="display:none;margin-top:8px;padding:12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);"></div>');
-box.appendChild(el('<p class="muted" style="margin:0 0 8px;">이 문제와 여기에 한 필기를 링크 하나로 만들어요. 받은 사람은 로그인 없이 볼 수 있고, 고칠 수는 없어요.</p>'));
+box.appendChild(el('<p class="muted" style="margin:0 0 8px;">이 문제와 여기에 한 필기를 링크 하나로 만들어요. 받은 사람은 로그인 없이 볼 수 있고, 고칠 수는 없어요.<br><strong>링크는 '+SHARE_TTL_DAYS+'일 뒤에 만료돼요.</strong> 받은 사람이 계속 보려면 그 화면에서 「내 자료에 담기」를 누르면 됩니다.</p>'));
 
 var optRow=el('<label class="row" style="gap:6px;align-items:center;margin-bottom:8px;font-size:12.5px;color:var(--text-2);cursor:pointer;width:fit-content;"></label>');
 var cbNotes=document.createElement('input');
@@ -6742,12 +6764,13 @@ return {url:base+'#share='+packed, short:false, why:(err&&err.message)||''};
 urlBox.value=r.url;
 out.style.display='block';
 var extra = curPw ? ' 번호를 따로 알려주는 걸 잊지 마세요.' : '';
+var until = ' '+fmtShareDate(shareExpiryAt())+'까지 열려요.';
 if(r.short){
-msg.textContent='짧은 링크를 만들었어요 ('+r.url.length+'자).'+extra;
+msg.textContent='짧은 링크를 만들었어요 ('+r.url.length+'자).'+until+extra;
 msg.style.color='var(--green)';
 } else {
 var kb=Math.round(r.url.length/1024*10)/10;
-msg.textContent='긴 링크로 만들었어요 ('+kb+'KB). '+(r.why||'')+' 메신저에서 잘릴 수 있어요.'+extra;
+msg.textContent='긴 링크로 만들었어요 ('+kb+'KB). '+(r.why||'')+' 메신저에서 잘릴 수 있어요.'+until+extra;
 msg.style.color='var(--amber)';
 }
 }).catch(function(e){
@@ -6772,6 +6795,37 @@ wrap.appendChild(btn); wrap.appendChild(box);
 return wrap;
 }
 
+/* 받은 자료를 내 공간에 담아요. 링크는 일주일 뒤 사라지지만 이건 내 것으로 남습니다. */
+function addSharedToMine(data){
+var kind = (data.k==='listening') ? 'listening' : 'reading';
+var id=uid();
+var item={
+id:id,
+taskType:data.tt||'',
+title:(data.t||'제목 없음'),
+label:'공유받음',
+questions:(data.q||[]).map(function(x){
+return {num:x.num||'', q:x.q||'', opts:x.opts||[], answer:x.answer, explanation:x.explanation||''};
+})
+};
+if(kind==='reading') item.passage=data.p||'';
+else item.script=data.p||'';
+DATA[kind].push(item);
+saveData();
+var ann=data.a||{};
+if(ann.passage || (ann.opts && Object.keys(ann.opts).length)){
+ANNOTATIONS[id]={passage:ann.passage||'', opts:ann.opts||{}};
+saveAnnotations();
+}
+if(data.n) { NOTES[id]=data.n; saveNotes(); }
+/* 라벨을 걸러둔 상태면 새 라벨도 켜줘야 목록에 보여요 */
+if(LABEL_FILTER && LABEL_FILTER.indexOf('공유받음')===-1){
+LABEL_FILTER.push('공유받음');
+saveLabelFilter();
+}
+return kind;
+}
+
 /* ---- 받은 링크를 여는 화면 (읽기 전용) ---- */
 function renderSharedView(data){
 document.body.innerHTML='';
@@ -6782,10 +6836,30 @@ var left=el('<div style="min-width:0;"></div>');
 left.appendChild(el('<p class="muted" style="margin:0 0 2px;font-size:12.5px;">공유받은 필기 · 읽기 전용</p>'));
 left.appendChild(el('<h2 style="margin:0;">'+escapeHtml(data.t||'제목 없음')+'</h2>'));
 head.appendChild(left);
+var headBtns=el('<div class="row" style="gap:6px;"></div>');
+var saveBtn=el('<button class="btn primary small">내 자료에 담기</button>');
 var mineBtn=el('<button class="btn small">내 학습 사이트 열기</button>');
 mineBtn.onclick=function(){ location.href=location.origin+location.pathname; };
-head.appendChild(mineBtn);
+headBtns.appendChild(saveBtn); headBtns.appendChild(mineBtn);
+head.appendChild(headBtns);
 wrap.appendChild(head);
+
+var saveMsg=el('<p class="muted" style="margin:0 0 12px;min-height:18px;"></p>');
+wrap.appendChild(saveMsg);
+saveBtn.onclick=function(){
+saveBtn.disabled=true;
+var kind;
+try{ kind=addSharedToMine(data); }
+catch(e){
+saveBtn.disabled=false;
+saveMsg.textContent='담지 못했어요: '+(e&&e.message?e.message:String(e));
+saveMsg.style.color='var(--red)';
+return;
+}
+saveBtn.textContent='담았어요 ✓';
+saveMsg.innerHTML='내 '+(kind==='listening'?'리스닝':'리딩')+' 목록에 「공유받음」 라벨로 담았어요. 필기와 메모도 같이 왔어요. 링크가 만료돼도 계속 볼 수 있습니다.';
+saveMsg.style.color='var(--green)';
+};
 
 var split=el('<div class="analysis-split"></div>');
 var L=el('<div class="analysis-left"></div>');
@@ -6851,7 +6925,9 @@ nCard.appendChild(nBody);
 wrap.appendChild(nCard);
 }
 
-wrap.appendChild(el('<p class="muted" style="margin-top:20px;font-size:12px;">이 화면은 공유받은 내용을 보여줄 뿐이라 고쳐도 저장되지 않아요. 원래 주인의 자료도 바뀌지 않습니다.</p>'));
+var footNote='이 화면은 공유받은 내용을 보여줄 뿐이라 고쳐도 저장되지 않아요. 원래 주인의 자료도 바뀌지 않습니다.';
+if(data.exp) footNote+=' 이 링크는 '+fmtShareDate(data.exp)+'까지만 열려요 — 계속 보려면 위의 「내 자료에 담기」를 눌러주세요.';
+wrap.appendChild(el('<p class="muted" style="margin-top:20px;font-size:12px;">'+footNote+'</p>'));
 document.body.appendChild(wrap);
 
 /* 메모가 제자리에 뜨도록, 읽기 전용이므로 고치지는 못하게 */
@@ -6898,10 +6974,8 @@ var pw=normSharePw(inp.value);
 if(pw.length!==SHARE_PW_LEN){ msg.textContent='7자리를 넣어주세요.'; msg.style.color='var(--red)'; return; }
 btn.disabled=true;
 msg.textContent='여는 중…'; msg.style.color='var(--text-3)';
-unpackShare(packed, pw).then(function(data){
-if(!data || data.v!==1) throw new Error('알 수 없는 링크예요.');
-renderSharedView(data);
-}).catch(function(e){
+unpackShare(packed, pw).then(acceptShared).catch(function(e){
+if(e && e.expired){ shareError(e.message); return; }
 btn.disabled=false;
 msg.textContent=(e&&e.message?e.message:String(e));
 msg.style.color='var(--red)';
@@ -6912,10 +6986,8 @@ inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefau
 }
 function openSharePacked(packed){
 if(shareNeedsPw(packed)){ askSharePw(packed); return; }
-unpackShare(packed).then(function(data){
-if(!data || data.v!==1) throw new Error('알 수 없는 링크예요.');
-renderSharedView(data);
-}).catch(function(e){
+unpackShare(packed).then(acceptShared).catch(function(e){
+if(e && e.expired){ shareError(e.message); return; }
 shareError((e&&e.message?e.message:String(e))+' 링크가 중간에 잘렸을 수 있어요. 보낸 사람에게 다시 받아보세요.');
 });
 }

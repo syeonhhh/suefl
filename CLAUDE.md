@@ -83,6 +83,8 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 | `markedVocab` | `v.marked`가 켜진 단어들. "표시된 단어 학습"이 이걸 씀 |
 | `markCwAnswers` | 리딩 Task 1 필기에서 `[답]` 자리를 `<b class="cw-ans">`로 감싸 강조. 서식을 칠하면 태그가 걷혀 나가므로 **그릴 때마다 다시** 감쌈 (저장된 필기에도 적용) |
 | `buildCwAnswerList` | Task 1은 객관식이 없어 필기 화면 오른쪽이 비어서, 빈칸 정답 목록을 채워 넣음 |
+| `buildSharePayload` / `acceptShared` | 필기 공유 링크. 페이로드에 `exp`(만료 시각)를 새겨서 `SHARE_TTL_DAYS`(7일) 뒤엔 안 열림 |
+| `addSharedToMine` | 받은 화면의 「내 자료에 담기」. 문제+필기+메모를 「공유받음」 라벨로 내 DATA에 복사 |
 | `showConfirm` | 직접 만든 확인창 (alert/confirm 대신). 모의고사 중 뒤로가기가 이걸 씀 |
 | `mergeSyncPayload` | 클라우드 병합 (덮어쓰기 아님) |
 | `markDeleted` / `dropDeleted` | 삭제 툼스톤 |
@@ -140,6 +142,10 @@ git 저장소임 (2026-08-24부터). 수정 전 임시 백업 대신 커밋으�
 - URL/anon key는 `SB_DEFAULT_URL` / `SB_DEFAULT_KEY`로 파일에 내장됨 (프로젝트: suefl, 도쿄)
 - anon key는 공개돼도 안전 — RLS로 각자 자기 행만 접근
 - 테이블 `user_data(user_id uuid PK, data jsonb, updated_at timestamptz)`
+- 테이블 `shares(id text PK, payload text, created_at timestamptz)` — 짧은 공유 링크(`#s=`)
+  - **7일 지난 행은 pg_cron이 매일 지움** (`purge-old-shares`). 안 지우면 계속 쌓임
+  - 긴 링크(`#share=`)는 서버에 아무것도 저장하지 않음 — 내용이 주소 안에 들어 있음
+  - 양쪽 다 페이로드의 `exp`로 클라이언트에서도 만료를 막음
 - 이메일 로그인 + 구글 OAuth
 - **병합 방식**: 양쪽 항목이 모두 살아남고, 삭제는 툼스톤으로 전파
 - 자동: 저장 시 1.5초 뒤 업로드 / 페이지 열 때·포커스 시·30초마다 다운로드
